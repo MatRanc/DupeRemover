@@ -1,1 +1,35 @@
+# macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+
+# Xcode — user-specific
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+
+# Xcode — build artifacts
+build/
+DerivedData/
+*.xcarchive
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+Packages/
+Package.resolved
+.swiftpm/
+
+# CocoaPods (not used today, but keep just in case)
+Pods/
+
+# Carthage
+Carthage/Build/
+
+# Other
+*.moved-aside
+*.hmap
+*.ipa
