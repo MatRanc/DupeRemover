@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		5E8249702FA7A2D9003B0792 /* PhotoDuplicateFinder.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PhotoDuplicateFinder.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5E8249702FA7A2D9003B0792 /* Dupe Remover.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Dupe Remover.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -40,7 +40,7 @@
 		5E8249712FA7A2D9003B0792 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				5E8249702FA7A2D9003B0792 /* PhotoDuplicateFinder.app */,
+				5E8249702FA7A2D9003B0792 /* Dupe Remover.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -48,9 +48,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		5E82496F2FA7A2D9003B0792 /* PhotoDuplicateFinder */ = {
+		5E82496F2FA7A2D9003B0792 /* Dupe Remover */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 5E82497B2FA7A2DB003B0792 /* Build configuration list for PBXNativeTarget "PhotoDuplicateFinder" */;
+			buildConfigurationList = 5E82497B2FA7A2DB003B0792 /* Build configuration list for PBXNativeTarget "Dupe Remover" */;
 			buildPhases = (
 				5E82496C2FA7A2D9003B0792 /* Sources */,
 				5E82496D2FA7A2D9003B0792 /* Frameworks */,
@@ -63,11 +63,11 @@
 			fileSystemSynchronizedGroups = (
 				5E8249722FA7A2D9003B0792 /* PhotoDuplicateFinder */,
 			);
-			name = PhotoDuplicateFinder;
+			name = "Dupe Remover";
 			packageProductDependencies = (
 			);
-			productName = PhotoDuplicateFinder;
-			productReference = 5E8249702FA7A2D9003B0792 /* PhotoDuplicateFinder.app */;
+			productName = "Dupe Remover";
+			productReference = 5E8249702FA7A2D9003B0792 /* Dupe Remover.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -99,7 +99,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				5E82496F2FA7A2D9003B0792 /* PhotoDuplicateFinder */,
+				5E82496F2FA7A2D9003B0792 /* Dupe Remover */,
 			);
 		};
 /* End PBXProject section */
@@ -247,8 +247,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
-				DEVELOPMENT_TEAM = "";
+				CURRENT_PROJECT_VERSION = 3;
+				DEVELOPMENT_TEAM = MRYMJMR49S;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
@@ -290,8 +290,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
-				DEVELOPMENT_TEAM = "";
+				CURRENT_PROJECT_VERSION = 3;
+				DEVELOPMENT_TEAM = MRYMJMR49S;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
@@ -339,7 +339,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		5E82497B2FA7A2DB003B0792 /* Build configuration list for PBXNativeTarget "PhotoDuplicateFinder" */ = {
+		5E82497B2FA7A2DB003B0792 /* Build configuration list for PBXNativeTarget "Dupe Remover" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				5E82497C2FA7A2DB003B0792 /* Debug */,
