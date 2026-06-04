@@ -270,7 +270,7 @@
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Mathieu Rancourt. All rights reserved.";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.matranc.duperemover;
 				PRODUCT_NAME = "Dupe Remover";
 				SDKROOT = macosx;
@@ -313,7 +313,7 @@
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Mathieu Rancourt. All rights reserved.";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.matranc.duperemover;
 				PRODUCT_NAME = "Dupe Remover";
 				SDKROOT = macosx;
