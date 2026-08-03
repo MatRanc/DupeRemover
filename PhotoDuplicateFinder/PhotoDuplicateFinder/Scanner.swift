@@ -3,6 +3,7 @@ import Combine
 import CryptoKit
 import AppKit
 import Vision
+import Photos
 
 nonisolated let imageExtensions: Set<String> = [
     "jpg", "jpeg", "png", "heic", "heif", "tiff", "tif", "gif", "webp", "bmp"
@@ -18,34 +19,70 @@ nonisolated enum MatchMode {
     case similar
 }
 
-nonisolated struct ImageFile: Identifiable, Hashable, Sendable {
-    var id: URL { url }
-    let url: URL
+// PHAsset is treated as an immutable snapshot from the Photos framework, safe to pass
+// across actors in practice even though it isn't declared Sendable upstream.
+nonisolated enum ItemSource: @unchecked Sendable, Hashable {
+    case file(URL)
+    case asset(PHAsset)
+}
+
+nonisolated struct ScanItem: Identifiable, Hashable, Sendable {
+    let id: String // URL path or PHAsset.localIdentifier
+    let source: ItemSource
+    let name: String
     let size: Int64
     let mtime: Double
+
+    var localURL: URL? {
+        if case .file(let url) = source { return url }
+        return nil
+    }
 }
 
 nonisolated struct DuplicateGroup: Identifiable {
     let id: String
-    var files: [ImageFile]
+    var files: [ScanItem]
     var mode: MatchMode
 }
 
-nonisolated func sha256(of url: URL) throws -> String {
-    let handle = try FileHandle(forReadingFrom: url)
-    defer { try? handle.close() }
-    var hasher = SHA256()
-    while let chunk = try handle.read(upToCount: 256 * 1024), !chunk.isEmpty {
-        hasher.update(data: chunk)
+nonisolated func sha256(of item: ScanItem) async -> String? {
+    switch item.source {
+    case .file(let url):
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while let chunk = try? handle.read(upToCount: 256 * 1024), !chunk.isEmpty {
+            hasher.update(data: chunk)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    case .asset(let asset):
+        guard let data = await requestImageData(for: asset) else { return nil }
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
-    return hasher.finalize().map { String(format: "%02x", $0) }.joined()
 }
 
-nonisolated func computeFeaturePrint(for url: URL) -> VNFeaturePrintObservation? {
+nonisolated func computeFeaturePrint(for item: ScanItem) async -> VNFeaturePrintObservation? {
     let request = VNGenerateImageFeaturePrintRequest()
-    let handler = VNImageRequestHandler(url: url, options: [:])
-    try? handler.perform([request])
+    switch item.source {
+    case .file(let url):
+        let handler = VNImageRequestHandler(url: url, options: [:])
+        try? handler.perform([request])
+    case .asset(let asset):
+        guard let data = await requestImageData(for: asset) else { return nil }
+        let handler = VNImageRequestHandler(data: data, options: [:])
+        try? handler.perform([request])
+    }
     return request.results?.first
+}
+
+nonisolated func requestImageData(for asset: PHAsset) async -> Data? {
+    await withCheckedContinuation { continuation in
+        let options = PHImageRequestOptions()
+        options.isNetworkAccessAllowed = true
+        PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, _, _, _ in
+            continuation.resume(returning: data)
+        }
+    }
 }
 
 nonisolated func archiveFeaturePrint(_ observation: VNFeaturePrintObservation) -> Data? {
@@ -56,8 +93,8 @@ nonisolated func unarchiveFeaturePrint(_ data: Data) -> VNFeaturePrintObservatio
     try? NSKeyedUnarchiver.unarchivedObject(ofClass: VNFeaturePrintObservation.self, from: data)
 }
 
-nonisolated func enumerateFiles(in folders: [URL]) -> [ImageFile] {
-    var files: [ImageFile] = []
+nonisolated func enumerateFiles(in folders: [URL]) -> [ScanItem] {
+    var items: [ScanItem] = []
     for folder in folders {
         guard let enumerator = FileManager.default.enumerator(
             at: folder,
@@ -70,14 +107,43 @@ nonisolated func enumerateFiles(in folders: [URL]) -> [ImageFile] {
             guard r?.isRegularFile == true,
                   let size = r?.fileSize,
                   let mdate = r?.contentModificationDate else { continue }
-            files.append(ImageFile(
-                url: url,
+            items.append(ScanItem(
+                id: url.path,
+                source: .file(url),
+                name: url.lastPathComponent,
                 size: Int64(size),
                 mtime: mdate.timeIntervalSince1970
             ))
         }
     }
-    return files
+    return items
+}
+
+nonisolated func requestPhotosAuthorization() async -> Bool {
+    let status = await withCheckedContinuation { continuation in
+        PHPhotoLibrary.requestAuthorization(for: .readWrite) { continuation.resume(returning: $0) }
+    }
+    return status == .authorized || status == .limited
+}
+
+nonisolated func enumeratePhotoLibraryAssets() -> [ScanItem] {
+    let result = PHAsset.fetchAssets(with: .image, options: nil)
+    var items: [ScanItem] = []
+    result.enumerateObjects { asset, _, _ in
+        // fileSize has no public accessor on PHAssetResource; KVC is the standard
+        // workaround to estimate size without downloading the asset.
+        let resource = PHAssetResource.assetResources(for: asset).first
+        let name = resource?.originalFilename ?? asset.localIdentifier
+        let size = (resource?.value(forKey: "fileSize") as? Int64) ?? 0
+        items.append(ScanItem(
+            id: asset.localIdentifier,
+            source: .asset(asset),
+            name: name,
+            size: size,
+            mtime: (asset.modificationDate ?? asset.creationDate)?.timeIntervalSince1970 ?? 0
+        ))
+    }
+    return items
 }
 
 nonisolated final class UnionFind {
@@ -102,16 +168,23 @@ nonisolated final class UnionFind {
     }
 }
 
+nonisolated enum ScanSource {
+    case folder
+    case photosLibrary
+}
+
 @MainActor
 final class ScanViewModel: ObservableObject {
     @Published var groups: [DuplicateGroup] = []
     @Published var isScanning = false
     @Published var statusText = "Choose a folder to scan."
-    @Published var selected: Set<URL> = []
+    @Published var selected: Set<String> = []
     @Published var matchSimilar = false
     @Published var similarityPercent: Double = defaultSimilarityPercent
     @Published var cacheEntries = 0
     @Published var cacheSize: Int64 = 0
+    @Published var scanSource: ScanSource = .folder
+    @Published private(set) var hasScanned = false
     @Published private(set) var lastScannedFolders: [URL] = []
 
     private let cache = CacheStore()
@@ -139,25 +212,60 @@ final class ScanViewModel: ObservableObject {
         panel.prompt = "Scan"
         guard panel.runModal() == .OK else { return }
         let urls = panel.urls
-        Task { await scan(folders: urls) }
+        Task { await scanFolders(urls) }
     }
 
-    func rescan() {
-        guard !lastScannedFolders.isEmpty else { return }
-        let folders = lastScannedFolders
-        Task { await scan(folders: folders) }
-    }
-
-    func scan(folders: [URL]) async {
+    func scanFolders(_ folders: [URL]) async {
+        scanSource = .folder
+        lastScannedFolders = folders
         isScanning = true
         groups = []
         selected = []
-        lastScannedFolders = folders
         statusText = "Enumerating files…"
 
-        let allFiles = await Task.detached(priority: .userInitiated) {
+        let items = await Task.detached(priority: .userInitiated) {
             enumerateFiles(in: folders)
         }.value
+
+        await runScan(items: items)
+    }
+
+    func scanPhotosLibrary() {
+        scanSource = .photosLibrary
+        Task {
+            isScanning = true
+            groups = []
+            selected = []
+            statusText = "Requesting Photos access…"
+
+            guard await requestPhotosAuthorization() else {
+                statusText = "Photos access denied."
+                isScanning = false
+                return
+            }
+
+            statusText = "Enumerating photos…"
+            let items = await Task.detached(priority: .userInitiated) {
+                enumeratePhotoLibraryAssets()
+            }.value
+
+            await runScan(items: items)
+        }
+    }
+
+    func rescan() {
+        guard hasScanned, !isScanning else { return }
+        switch scanSource {
+        case .folder:
+            guard !lastScannedFolders.isEmpty else { return }
+            Task { await scanFolders(lastScannedFolders) }
+        case .photosLibrary:
+            scanPhotosLibrary()
+        }
+    }
+
+    private func runScan(items allFiles: [ScanItem]) async {
+        hasScanned = true
 
         guard !allFiles.isEmpty else {
             statusText = "No image files found."
@@ -178,7 +286,7 @@ final class ScanViewModel: ObservableObject {
         var toHash: [Int] = []
         for i in candidateIndexes {
             let f = allFiles[i]
-            if let entry = await cache.get(path: f.url.path, mtime: f.mtime, size: f.size),
+            if let entry = await cache.get(path: f.id, mtime: f.mtime, size: f.size),
                let h = entry.sha256 {
                 hashByIndex[i] = h
             } else {
@@ -190,7 +298,7 @@ final class ScanViewModel: ObservableObject {
             let computed: [(Int, String)] = await Task.detached(priority: .userInitiated) {
                 var out: [(Int, String)] = []
                 for i in toHash {
-                    if let h = try? sha256(of: allFiles[i].url) {
+                    if let h = await sha256(of: allFiles[i]) {
                         out.append((i, h))
                     }
                 }
@@ -200,7 +308,7 @@ final class ScanViewModel: ObservableObject {
             for (i, h) in computed {
                 hashByIndex[i] = h
                 let f = allFiles[i]
-                await cache.setHash(path: f.url.path, mtime: f.mtime, size: f.size, sha256: h)
+                await cache.setHash(path: f.id, mtime: f.mtime, size: f.size, sha256: h)
             }
         }
 
@@ -217,7 +325,7 @@ final class ScanViewModel: ObservableObject {
             var printsData: [Int: Data] = [:]
             var missing: [Int] = []
             for (i, f) in allFiles.enumerated() {
-                if let entry = await cache.get(path: f.url.path, mtime: f.mtime, size: f.size),
+                if let entry = await cache.get(path: f.id, mtime: f.mtime, size: f.size),
                    let data = entry.featurePrintData {
                     printsData[i] = data
                 } else {
@@ -241,10 +349,10 @@ final class ScanViewModel: ObservableObject {
                     func scheduleNext() {
                         guard nextIndex < missing.count else { return }
                         let i = missing[nextIndex]
-                        let url = allFiles[i].url
+                        let item = allFiles[i]
                         nextIndex += 1
                         group.addTask {
-                            let obs = computeFeaturePrint(for: url)
+                            let obs = await computeFeaturePrint(for: item)
                             return (i, obs.flatMap(archiveFeaturePrint))
                         }
                     }
@@ -257,7 +365,7 @@ final class ScanViewModel: ObservableObject {
                             newlyComputed.append((i, data))
                         }
                         done += 1
-                        let name = allFiles[i].url.lastPathComponent
+                        let name = allFiles[i].name
                         statusText = "Analyzing \(done)/\(total) photos · \(name)"
                         scheduleNext()
                     }
@@ -267,7 +375,7 @@ final class ScanViewModel: ObservableObject {
                 for (i, data) in newlyComputed {
                     let f = allFiles[i]
                     await cache.setFeaturePrint(
-                        path: f.url.path, mtime: f.mtime, size: f.size, data: data
+                        path: f.id, mtime: f.mtime, size: f.size, data: data
                     )
                 }
             }
@@ -321,7 +429,7 @@ final class ScanViewModel: ObservableObject {
             let mode: MatchMode = (allHashed && theseHashes.count == 1) ? .identical : .similar
             return DuplicateGroup(
                 id: UUID().uuidString,
-                files: files.sorted { $0.url.path < $1.url.path },
+                files: files.sorted { $0.id < $1.id },
                 mode: mode
             )
         }.sorted { a, b in
@@ -346,14 +454,14 @@ final class ScanViewModel: ObservableObject {
         isScanning = false
     }
 
-    func toggle(_ url: URL) {
-        if selected.contains(url) { selected.remove(url) } else { selected.insert(url) }
+    func toggle(_ item: ScanItem) {
+        if selected.contains(item.id) { selected.remove(item.id) } else { selected.insert(item.id) }
     }
 
     func selectAllButFirstInEveryGroup() {
-        var next: Set<URL> = []
+        var next: Set<String> = []
         for g in groups {
-            for f in g.files.dropFirst() { next.insert(f.url) }
+            for f in g.files.dropFirst() { next.insert(f.id) }
         }
         selected = next
     }
@@ -363,26 +471,57 @@ final class ScanViewModel: ObservableObject {
     }
 
     func trashSelected() {
-        let urls = Array(selected)
-        var trashed: Set<URL> = []
+        let items = groups.flatMap { $0.files }.filter { selected.contains($0.id) }
+        var localURLs: [URL] = []
+        var assets: [PHAsset] = []
+        for item in items {
+            switch item.source {
+            case .file(let url): localURLs.append(url)
+            case .asset(let asset): assets.append(asset)
+            }
+        }
+
+        var trashedIDs: Set<String> = []
         var failed = 0
-        for url in urls {
+
+        for url in localURLs {
             do {
                 var resulting: NSURL?
                 try FileManager.default.trashItem(at: url, resultingItemURL: &resulting)
-                trashed.insert(url)
+                trashedIDs.insert(url.path)
             } catch {
                 failed += 1
             }
         }
+
+        guard !assets.isEmpty else {
+            finishTrashing(trashedIDs: trashedIDs, failed: failed)
+            return
+        }
+
+        PHPhotoLibrary.shared().performChanges({
+            PHAssetChangeRequest.deleteAssets(assets as NSArray)
+        }, completionHandler: { success, _ in
+            let assetTrashedIDs = success ? Set(assets.map { $0.localIdentifier }) : []
+            let assetFailed = success ? 0 : assets.count
+            Task { @MainActor in
+                self.finishTrashing(
+                    trashedIDs: trashedIDs.union(assetTrashedIDs),
+                    failed: failed + assetFailed
+                )
+            }
+        })
+    }
+
+    private func finishTrashing(trashedIDs: Set<String>, failed: Int) {
         groups = groups.compactMap { g in
-            let remaining = g.files.filter { !trashed.contains($0.url) }
+            let remaining = g.files.filter { !trashedIDs.contains($0.id) }
             return remaining.count > 1 ? DuplicateGroup(id: g.id, files: remaining, mode: g.mode) : nil
         }
         selected = []
         statusText = failed == 0
-            ? "Moved \(trashed.count) to Trash."
-            : "Moved \(trashed.count) to Trash · \(failed) failed."
+            ? "Moved \(trashedIDs.count) to Trash."
+            : "Moved \(trashedIDs.count) to Trash · \(failed) failed."
     }
 }
 

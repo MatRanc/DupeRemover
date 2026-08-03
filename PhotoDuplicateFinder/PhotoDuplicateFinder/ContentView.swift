@@ -1,6 +1,7 @@
 import SwiftUI
 import QuickLookThumbnailing
 import AppKit
+import Photos
 
 struct ContentView: View {
     @StateObject private var vm = ScanViewModel()
@@ -28,10 +29,24 @@ struct ContentView: View {
 
     private var primaryRow: some View {
         HStack(spacing: 10) {
+            Picker("", selection: $vm.scanSource) {
+                Text("Local Folder").tag(ScanSource.folder)
+                Text("Photos Library").tag(ScanSource.photosLibrary)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .disabled(vm.isScanning)
+
             Button {
-                vm.chooseFoldersAndScan()
+                switch vm.scanSource {
+                case .folder: vm.chooseFoldersAndScan()
+                case .photosLibrary: vm.scanPhotosLibrary()
+                }
             } label: {
-                Label("Choose folder…", systemImage: "folder")
+                vm.scanSource == .folder
+                    ? Label("Choose folder…", systemImage: "folder")
+                    : Label("Scan Library", systemImage: "photo.stack")
             }
             .disabled(vm.isScanning)
 
@@ -40,10 +55,12 @@ struct ContentView: View {
             } label: {
                 Label("Rescan", systemImage: "arrow.clockwise")
             }
-            .disabled(vm.lastScannedFolders.isEmpty || vm.isScanning)
-            .help(vm.lastScannedFolders.isEmpty
-                  ? "No folder scanned yet"
-                  : "Rescan: " + vm.lastScannedFolders.map { $0.lastPathComponent }.joined(separator: ", "))
+            .disabled(!vm.hasScanned || vm.isScanning || (vm.scanSource == .folder && vm.lastScannedFolders.isEmpty))
+            .help(vm.scanSource == .folder
+                  ? (vm.lastScannedFolders.isEmpty
+                     ? "No folder scanned yet"
+                     : "Rescan: " + vm.lastScannedFolders.map { $0.lastPathComponent }.joined(separator: ", "))
+                  : "Rescan Photos Library")
 
             Spacer(minLength: 8)
 
@@ -140,11 +157,11 @@ struct ContentView: View {
             List {
                 ForEach(vm.groups) { group in
                     Section {
-                        ForEach(group.files) { file in
+                        ForEach(group.files) { item in
                             FileRow(
-                                file: file,
-                                isSelected: vm.selected.contains(file.url)
-                            ) { vm.toggle(file.url) }
+                                item: item,
+                                isSelected: vm.selected.contains(item.id)
+                            ) { vm.toggle(item) }
                         }
                     } header: {
                         groupHeader(for: group)
@@ -223,23 +240,27 @@ struct MatchInfoPopover: View {
 }
 
 struct FileRow: View {
-    let file: ImageFile
+    let item: ScanItem
     let isSelected: Bool
     let onToggle: () -> Void
+
+    private var subtitle: String {
+        item.localURL?.path ?? "Photos Library"
+    }
 
     var body: some View {
         HStack(spacing: 12) {
             Toggle("", isOn: Binding(get: { isSelected }, set: { _ in onToggle() }))
                 .labelsHidden()
 
-            ThumbnailView(url: file.url)
+            ThumbnailView(item: item)
                 .frame(width: 56, height: 56)
                 .background(Color(nsColor: .quaternaryLabelColor))
                 .clipShape(RoundedRectangle(cornerRadius: 4))
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(file.url.lastPathComponent).font(.body)
-                Text(file.url.path)
+                Text(item.name).font(.body)
+                Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -248,17 +269,20 @@ struct FileRow: View {
 
             Spacer()
 
-            Text(formatBytes(file.size))
+            Text(formatBytes(item.size))
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
             Button {
-                NSWorkspace.shared.activateFileViewerSelecting([file.url])
+                if let url = item.localURL {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
             } label: {
                 Image(systemName: "magnifyingglass")
             }
             .buttonStyle(.borderless)
             .help("Reveal in Finder")
+            .disabled(item.localURL == nil)
         }
         .contentShape(Rectangle())
         .onTapGesture { onToggle() }
@@ -266,7 +290,7 @@ struct FileRow: View {
 }
 
 struct ThumbnailView: View {
-    let url: URL
+    let item: ScanItem
     @State private var image: NSImage?
 
     var body: some View {
@@ -278,16 +302,37 @@ struct ThumbnailView: View {
             }
         }
         .clipped()
-        .task(id: url) {
-            let scale = NSScreen.main?.backingScaleFactor ?? 2
-            let request = QLThumbnailGenerator.Request(
-                fileAt: url,
-                size: CGSize(width: 56, height: 56),
-                scale: scale,
-                representationTypes: .thumbnail
-            )
-            let rep = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request)
-            self.image = rep?.nsImage
+        .task(id: item.id) {
+            if let url = item.localURL {
+                let scale = NSScreen.main?.backingScaleFactor ?? 2
+                let request = QLThumbnailGenerator.Request(
+                    fileAt: url,
+                    size: CGSize(width: 56, height: 56),
+                    scale: scale,
+                    representationTypes: .thumbnail
+                )
+                let rep = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request)
+                self.image = rep?.nsImage
+            } else if case .asset(let asset) = item.source {
+                let options = PHImageRequestOptions()
+                options.isNetworkAccessAllowed = true
+                // .highQualityFormat delivers a single result; .opportunistic would call
+                // this completion handler twice, which withCheckedContinuation can't allow.
+                options.deliveryMode = .highQualityFormat
+                let scale = NSScreen.main?.backingScaleFactor ?? 2
+                let targetSize = CGSize(width: 56 * scale, height: 56 * scale)
+                let result: NSImage? = await withCheckedContinuation { continuation in
+                    PHImageManager.default().requestImage(
+                        for: asset,
+                        targetSize: targetSize,
+                        contentMode: .aspectFill,
+                        options: options
+                    ) { result, _ in
+                        continuation.resume(returning: result)
+                    }
+                }
+                self.image = result
+            }
         }
     }
 }
