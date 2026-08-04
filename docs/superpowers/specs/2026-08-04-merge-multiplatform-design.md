@@ -1,7 +1,7 @@
 # Merge DupeRemover (macOS) + DupeRemoveriOS into one multiplatform app
 
 **Date:** 2026-08-04
-**Status:** Approved, not yet implemented
+**Status:** Implemented 2026-08-04
 
 ## Problem
 
@@ -131,3 +131,20 @@ via the new picker), checking for the same no-crash/timing bar the iOS
 - Converting macOS's `ItemSource.asset(PHAsset)` call sites to the
   snapshot-and-refetch pattern touches more of `Scanner.swift` than a
   typical port; this is the highest-effort single piece of the merge.
+
+## As built
+
+Shipped as 1.1 (build 9). Three deviations from the above:
+
+- **One change token, not two fields.** `ScanItem.token` / `CacheEntry.token`
+  holds pixel count for Photos assets and byte size for files, instead of
+  the spec's separate `pixelCount`/`size` notions. `CacheEntry` has a
+  hand-written `init(from:)` that also decodes the legacy `pixelCount` (iOS)
+  and `size` (macOS) keys, so no existing user loses their cache on upgrade.
+- **Folder pickers stayed split.** macOS keeps `NSOpenPanel`, iOS uses
+  SwiftUI `.fileImporter` (rather than `UIDocumentPickerViewController`
+  directly) — per the spec's letter. Consolidating both onto one
+  `.fileImporter` is deferred to a tracked issue.
+- **Trash on both platforms.** Deleting a local file uses
+  `FileManager.trashItem` on iOS as well as macOS; the spec did not say what
+  iOS should do with files picked from the document picker.
