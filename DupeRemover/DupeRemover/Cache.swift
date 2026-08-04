@@ -42,7 +42,7 @@ extension CacheEntry {
     /// Hand-written so a cache written by either pre-merge app still decodes.
     /// Without the aliases every existing user silently re-hashes and
     /// re-fingerprints their whole library on first launch after upgrading.
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let legacy = try decoder.container(keyedBy: LegacyKeys.self)
         mtime = try c.decode(Double.self, forKey: .mtime)

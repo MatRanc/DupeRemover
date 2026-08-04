@@ -148,3 +148,21 @@ Shipped as 1.1 (build 9). Three deviations from the above:
 - **Trash on both platforms.** Deleting a local file uses
   `FileManager.trashItem` on iOS as well as macOS; the spec did not say what
   iOS should do with files picked from the document picker.
+
+## Found while testing
+
+Two things the test suite turned up that were not in the design, both fixed:
+
+- **Vision blocked the cooperative thread pool.** `VNImageRequestHandler.perform`
+  blocks its caller, and the analyze phase called it straight from an async task.
+  Swift's cooperative pool has one thread per core and does not grow to cover
+  blocked threads, so four concurrent analyses on a four-core machine parked the
+  whole pool and the scan stopped dead — silently, with no crash and no error.
+  The call now runs on a private `DispatchQueue` (`visionQueue` in `Scanner.swift`);
+  a test that runs four scans at once guards it under a time limit. This was a
+  latent hazard in the shipped iOS code too — it only escaped notice because
+  phones have more cores than the concurrency cap.
+- **`FileManager.trashItem` can fail on iOS.** Locations without a Trash refuse
+  the move, and the old status line for that case read "Nothing deleted." It now
+  says what happened. Whether a folder picked through the iOS document picker
+  supports trashing is still unverified on a real device.

@@ -64,7 +64,7 @@ You can delete the cache at any time from the app's menu: open the three-dot men
 
 Dupe Remover never permanently deletes anything:
 
-- Files scanned from a folder are moved to the system **Trash**, and can be restored until you empty it.
+- Files scanned from a folder are moved to the system **Trash**, and can be restored until you empty it. If a location does not support a Trash, the app tells you it could not delete those files rather than removing them outright.
 - Photos scanned from your library are moved to **Recently Deleted**, where they stay for about 30 days before the system removes them.
 
 ## Children's privacy

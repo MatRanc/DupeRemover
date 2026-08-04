@@ -35,7 +35,7 @@ nonisolated func computeFeaturePrint(from cgImage: CGImage) -> VNFeaturePrintObs
 /// and the analyze phase stops dead with no error and no crash. The test suite
 /// reproduced exactly that. Hopping to this queue keeps the blocking wait off
 /// the pool, so the cores stay available.
-private let visionQueue = DispatchQueue(
+nonisolated private let visionQueue = DispatchQueue(
     label: "com.matranc.duperemover.vision",
     qos: .userInitiated,
     attributes: .concurrent
