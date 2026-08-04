@@ -11,7 +11,7 @@ import AppKit
 // Default distance below which two photos are considered "similar" (Vision feature
 // print). 0.0 = identical embeddings; ~0.2 = visually near-duplicate; 0.5+ =
 // different scenes. Exposed as a slider so users can tune strictness.
-nonisolated let defaultSimilarityPercent: Double = 20.0
+nonisolated let defaultTolerancePercent: Double = 20.0   // shown as 80% similarity
 
 // Longest edge, in pixels, of the image handed to Vision. Vision downsizes
 // internally anyway; 448px keeps feature prints stable while cutting decode cost.
@@ -182,6 +182,22 @@ nonisolated func visionImage(for item: ScanItem) async -> CGImage? {
     }
 }
 
+nonisolated let deviceWord: String = {
+    #if os(macOS)
+    "Mac"
+    #else
+    "device"
+    #endif
+}()
+
+nonisolated let settingsAppName: String = {
+    #if os(macOS)
+    "System Settings"
+    #else
+    "Settings"
+    #endif
+}()
+
 private let idleScanPrompt: String = {
     #if os(macOS)
     "Choose a folder to scan."
@@ -205,9 +221,12 @@ final class ScanViewModel: ObservableObject {
     @Published var hintText: String?
     @Published var selected: Set<String> = []
     @Published var matchSimilar = false
-    @Published var similarityPercent: Double = defaultSimilarityPercent
+    @Published var tolerancePercent: Double = defaultTolerancePercent
     @Published var cacheEntries = 0
     @Published var cacheSize: Int64 = 0
+    /// Photos the last scan could not read, almost always iCloud originals that
+    /// aren't on this device. Drives the explanation under an empty result.
+    @Published private(set) var skippedCount = 0
 
     // Where to scan. Each platform defaults to the source it shipped with.
     #if os(macOS)
@@ -348,7 +367,15 @@ final class ScanViewModel: ObservableObject {
             }
             return await fetchTask.value
         } emptyMessage: {
-            "No photos found\(self.selectedAlbumTitle.map { " in \($0)" } ?? "")."
+            // An empty library almost never means an empty library. Far more often
+            // the app holds access to selected photos only: the fetch then returns
+            // nothing at all, and a bare "No photos found" reads like a broken app.
+            if self.authStatus == .limited {
+                return "Dupe Remover can only see the photos you picked for it, and "
+                    + "none of them are here. Give it access to more photos in "
+                    + "\(settingsAppName) ▸ Privacy & Security ▸ Photos."
+            }
+            return "No photos found\(self.selectedAlbumTitle.map { " in \($0)" } ?? "")."
         }
     }
 
@@ -374,6 +401,7 @@ final class ScanViewModel: ObservableObject {
         progress = 0
         etaText = nil
         hintText = nil
+        skippedCount = 0
         hasScanned = true
 
         #if os(iOS)
@@ -406,6 +434,11 @@ final class ScanViewModel: ObservableObject {
 
         let uf = UnionFind(count: allAssets.count)
         var hashByIndex: [Int: String] = [:]
+        // Photos whose pixels we could not get at. Overwhelmingly this means the
+        // original lives in iCloud and isn't on this device: both the hash and the
+        // fingerprint deliberately refuse to download it. Silently skipping them
+        // makes a scan look like it did nothing, so they get counted and reported.
+        var unreadable: Set<String> = []
 
         // Step 1: identical detection by SHA-256, only for pixel-dimension
         // collisions (byte-identical files always share their dimensions, so this
@@ -442,6 +475,8 @@ final class ScanViewModel: ObservableObject {
                     hashByIndex[i] = h
                     let a = allAssets[i]
                     await self.cache.setHash(id: a.id, mtime: a.mtime, token: a.token, sha256: h)
+                } else {
+                    unreadable.insert(allAssets[i].id)
                 }
                 self.progress = Double(done) / Double(toHash.count)
                 self.statusText = "Hashing \(done)/\(toHash.count) photos…"
@@ -495,10 +530,13 @@ final class ScanViewModel: ObservableObject {
                     done += 1
                     if let archived {
                         printsData[i] = archived.data
+                        unreadable.remove(allAssets[i].id)
                         let a = allAssets[i]
                         await self.cache.setFeaturePrint(
                             id: a.id, mtime: a.mtime, token: a.token,
                             data: archived.data, revision: archived.revision)
+                    } else {
+                        unreadable.insert(allAssets[i].id)
                     }
                     self.progress = Double(done) / Double(total)
                     self.statusText = "Analyzing \(done)/\(total) photos…"
@@ -521,7 +559,7 @@ final class ScanViewModel: ObservableObject {
             // triangular, so a simple outer-index fraction would feel non-linear).
             let box = FeaturePrintBox(printsData)
             printsData = [:]
-            let threshold = Float(similarityPercent / 100.0)
+            let threshold = Float(tolerancePercent / 100.0)
             let compareStart = Date()
             let (cmpStream, cmpCont) = AsyncStream<Double>.makeStream()
             let compareTask = Task.detached(priority: .userInitiated) { () -> [(Int, Int)] in
@@ -645,6 +683,16 @@ final class ScanViewModel: ObservableObject {
             if identicalCount > 0 { parts.append("\(identicalCount) identical") }
             if similarCount > 0 { parts.append("\(similarCount) similar") }
             statusText = "\(parts.joined(separator: " · ")) groups · \(dupCount) extras of \(allAssets.count) photos."
+        }
+        skippedCount = unreadable.count
+        if !unreadable.isEmpty {
+            // Worth saying out loud: on a Mac set to optimise storage this can be
+            // the entire library, and the scan then looks broken rather than
+            // limited. Comparing photos means reading their pixels, and the app
+            // will not pull an original down from iCloud to do it.
+            statusText += scanSource == .photosLibrary
+                ? " \(unreadable.count) couldn't be read — they're not downloaded to this \(deviceWord)."
+                : " \(unreadable.count) file\(unreadable.count == 1 ? "" : "s") couldn't be read."
         }
 
         await refreshCacheStats()

@@ -485,8 +485,8 @@ struct MatchInfoContent: View {
                 "Uses Apple's on-device Vision framework to compare what photos look like, not how they're stored. Catches re-exported JPEGs, light edits, the same shot at different resolutions, or screenshots of the same image. Slower the first time because each photo is analyzed once — results are cached so repeat scans are fast."
             )
             section(
-                "Strictness slider",
-                "Controls how visually close two photos must be before they're grouped. Lower = stricter (only photos that look almost identical). Higher = looser (catches more edited/cropped variants but risks false matches). 20% works well for most libraries."
+                "Similarity slider",
+                "How alike two photos have to look before they're grouped. Higher is stricter — at 95% only photos that look almost identical are grouped. Lower catches more edited or cropped variants, at the risk of grouping photos that only resemble each other. 80% works well for most libraries."
             )
 
             Text("Both modes run entirely on your device. Nothing is uploaded.")

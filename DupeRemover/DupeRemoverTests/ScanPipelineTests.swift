@@ -96,7 +96,7 @@ struct ScanPipelineTests {
 
         let vm = model()
         vm.matchSimilar = true
-        vm.similarityPercent = 40
+        vm.tolerancePercent = 40
 
         await vm.scanFolders([dir])
 
@@ -113,27 +113,27 @@ struct ScanPipelineTests {
 
         let vm = model()
         vm.matchSimilar = false
-        vm.similarityPercent = 40
+        vm.tolerancePercent = 40
 
         await vm.scanFolders([dir])
         #expect(vm.groups.isEmpty)
     }
 
-    @Test("the strictness slider actually tightens matching", .enabled(if: TestSupport.visionAvailable))
-    func strictnessTightens() async {
+    @Test("the similarity slider actually tightens matching", .enabled(if: TestSupport.visionAvailable))
+    func similarityTightens() async {
         let dir = TestImages.tempDir("strict")
         TestImages.write(.beach, to: dir, named: "beach.png")
         TestImages.write(.beach, to: dir, named: "beach.heic")
 
         let loose = model("loose")
         loose.matchSimilar = true
-        loose.similarityPercent = 40
+        loose.tolerancePercent = 40
         await loose.scanFolders([dir])
         #expect(loose.groups.count == 1)
 
         let strict = model("strict")
         strict.matchSimilar = true
-        strict.similarityPercent = 5
+        strict.tolerancePercent = 5
         await strict.scanFolders([dir])
         #expect(strict.groups.isEmpty)
     }
@@ -148,7 +148,7 @@ struct ScanPipelineTests {
 
         let vm = model()
         vm.matchSimilar = true
-        vm.similarityPercent = 40
+        vm.tolerancePercent = 40
         await vm.scanFolders([dir])
 
         #expect(vm.groups.count == 2)
@@ -171,7 +171,7 @@ struct ScanPipelineTests {
 
         let cold = ScanViewModel(cacheDirectory: cacheDir)
         cold.matchSimilar = true
-        cold.similarityPercent = 40
+        cold.tolerancePercent = 40
         await cold.scanFolders([dir])
         let coldGroups = cold.groups.map { Set($0.items.map(\.id)) }
         #expect(await cold.cache.entryCount() > 0)
@@ -179,7 +179,7 @@ struct ScanPipelineTests {
         // A fresh model, so the store reloads (and compacts) from disk first.
         let warm = ScanViewModel(cacheDirectory: cacheDir)
         warm.matchSimilar = true
-        warm.similarityPercent = 40
+        warm.tolerancePercent = 40
         let sizeBeforeScan = await warm.cache.diskSize()
         await warm.scanFolders([dir])
 
@@ -341,7 +341,7 @@ struct ScanPipelineTests {
 
         let vm = model()
         vm.matchSimilar = true
-        vm.similarityPercent = 40
+        vm.tolerancePercent = 40
         await vm.scanFolders([dir])
 
         // The good pair is still found; the unreadable file simply has no print.
@@ -406,7 +406,7 @@ struct ScanPipelineTests {
         let models = (0..<4).map { i -> ScanViewModel in
             let vm = model("parallel-\(i)")
             vm.matchSimilar = true
-            vm.similarityPercent = 40
+            vm.tolerancePercent = 40
             return vm
         }
 

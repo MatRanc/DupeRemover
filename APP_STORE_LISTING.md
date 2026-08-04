@@ -59,7 +59,7 @@ Point it at your Photos library, narrow it to a single album, or pick a folder i
 TWO WAYS TO MATCH
 Identical — byte-for-byte SHA-256 comparison. Catches the same file copied, renamed, or moved.
 Similar — Apple's on-device Vision framework compares what photos look like, not how they're stored. Catches re-exported JPEGs, light edits, the same shot at different resolutions, screenshots of the same image.
-A strictness slider tunes how close two photos have to look before they're grouped. 20% works well for most libraries.
+A similarity slider sets how alike two photos have to look before they're grouped. 80% works well for most libraries.
 
 SAFE CLEANUP
 "Select all but first" keeps one photo per group and selects the rest. Nothing is permanently deleted: files go to the Trash, and library photos go to Recently Deleted, where they stay for about 30 days.
@@ -209,7 +209,7 @@ uploading the 6.9" set is the simpler path.)
 
 What each shot should show (same story on all three platforms):
 
-1. **Start screen** — the Photos Library / Local Folder segmented picker, the Identical and Similar toggles, and the strictness slider at 20%.
+1. **Start screen** — the Photos Library / Local Folder segmented picker, the Identical and Similar toggles, and the similarity slider at 80%.
 2. **Album picker** — the sheet listing albums, showing a scan scoped to one album.
 3. **Scan in progress** — the step line ("Step 2 of 4 · …"), the progress bar, and the "about … left" estimate.
 4. **Results** — duplicate groups with thumbnails and the group header, with "Select all but first" visible.

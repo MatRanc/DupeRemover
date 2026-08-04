@@ -84,6 +84,26 @@ struct ContentView: View {
         .disabled(vm.isScanning)
     }
 
+    /// The slider reads as "how alike two photos must look", which is the way
+    /// round people expect a percentage to work. The model keeps the number the
+    /// comparison actually uses: the distance it will tolerate.
+    var similarity: Binding<Double> {
+        Binding(get: { 100 - vm.tolerancePercent },
+                set: { vm.tolerancePercent = 100 - $0 })
+    }
+
+    /// Where the user changes which photos this app may see.
+    func openPhotoSettings() {
+        #if os(macOS)
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Photos")
+        else { return }
+        NSWorkspace.shared.open(url)
+        #else
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+        #endif
+    }
+
     /// Starts a scan, or opens the folder picker first when scanning a folder.
     func startScan() {
         switch vm.scanSource {
@@ -143,6 +163,8 @@ struct ContentView: View {
                         .foregroundStyle(.tertiary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 40)
+                    Button("Open Photos settings", action: openPhotoSettings)
+                        .padding(.top, 4)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -298,11 +320,11 @@ extension ContentView {
                 }
 
                 HStack(spacing: 10) {
-                    Text("Strictness")
+                    Text("Similarity")
                         .foregroundStyle(.secondary)
                         .font(.callout)
-                    Slider(value: $vm.similarityPercent, in: 5...40, step: 1)
-                    Text("\(Int(vm.similarityPercent))%")
+                    Slider(value: similarity, in: 60...95, step: 1)
+                    Text("\(Int(similarity.wrappedValue))%")
                         .monospacedDigit()
                         .frame(width: 40, alignment: .trailing)
                         .foregroundStyle(.secondary)
@@ -399,18 +421,18 @@ extension ContentView {
                 .help("Limit the scan to one album")
             }
 
-            Button {
-                Task { await vm.rescan() }
-            } label: {
-                Label("Rescan", systemImage: "arrow.clockwise")
+            // Only the folder source needs this: "Scan Library" already rescans,
+            // whereas "Choose folder…" would make you pick the same folder again.
+            if vm.scanSource == .folder, !vm.lastScannedFolders.isEmpty {
+                Button {
+                    Task { await vm.rescan() }
+                } label: {
+                    Label("Rescan", systemImage: "arrow.clockwise")
+                }
+                .disabled(vm.isScanning)
+                .help("Rescan " + vm.lastScannedFolders.map { $0.lastPathComponent }
+                        .joined(separator: ", "))
             }
-            .disabled(!vm.hasScanned || vm.isScanning
-                      || (vm.scanSource == .folder && vm.lastScannedFolders.isEmpty))
-            .help(vm.scanSource == .folder
-                  ? (vm.lastScannedFolders.isEmpty
-                     ? "No folder scanned yet"
-                     : "Rescan: " + vm.lastScannedFolders.map { $0.lastPathComponent }.joined(separator: ", "))
-                  : "Rescan Photos Library")
 
             Spacer(minLength: 8)
 
@@ -448,18 +470,18 @@ extension ContentView {
             }
 
             HStack(spacing: 6) {
-                Text("Strictness")
+                Text("Similarity")
                     .foregroundStyle(.secondary)
-                Slider(value: $vm.similarityPercent, in: 5...40, step: 1)
+                Slider(value: similarity, in: 60...95, step: 1)
                     .frame(minWidth: 90, idealWidth: 130, maxWidth: 160)
-                Text("\(Int(vm.similarityPercent))%")
+                Text("\(Int(similarity.wrappedValue))%")
                     .monospacedDigit()
                     .frame(width: 34, alignment: .leading)
                     .foregroundStyle(.secondary)
             }
             .font(.callout)
             .disabled(!vm.matchSimilar || vm.isScanning)
-            .help("Lower = stricter (only very-similar photos). 20% works well for most cases.")
+            .help("How alike two photos have to look before they're grouped. Higher is stricter; 80% works well for most libraries.")
             .layoutPriority(1)
 
             Spacer(minLength: 8)
