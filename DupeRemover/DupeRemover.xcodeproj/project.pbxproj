@@ -7,19 +7,19 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		5E8249702FA7A2D9003B0792 /* Dupe Remover.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Dupe Remover.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		FA570000000000000000A001 /* Dupe Remover.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Dupe Remover.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		5E8249722FA7A2D9003B0792 /* PhotoDuplicateFinder */ = {
+		FA570000000000000000A002 /* DupeRemover */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = PhotoDuplicateFinder;
+			path = DupeRemover;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		5E82496D2FA7A2D9003B0792 /* Frameworks */ = {
+		FA570000000000000000A003 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -29,18 +29,18 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		5E8249672FA7A2D9003B0792 = {
+		FA570000000000000000A004 = {
 			isa = PBXGroup;
 			children = (
-				5E8249722FA7A2D9003B0792 /* PhotoDuplicateFinder */,
-				5E8249712FA7A2D9003B0792 /* Products */,
+				FA570000000000000000A002 /* DupeRemover */,
+				FA570000000000000000A005 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		5E8249712FA7A2D9003B0792 /* Products */ = {
+		FA570000000000000000A005 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				5E8249702FA7A2D9003B0792 /* Dupe Remover.app */,
+				FA570000000000000000A001 /* Dupe Remover.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -48,64 +48,64 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		5E82496F2FA7A2D9003B0792 /* Dupe Remover */ = {
+		FA570000000000000000A006 /* DupeRemover */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 5E82497B2FA7A2DB003B0792 /* Build configuration list for PBXNativeTarget "Dupe Remover" */;
+			buildConfigurationList = FA570000000000000000A011 /* Build configuration list for PBXNativeTarget "DupeRemover" */;
 			buildPhases = (
-				5E82496C2FA7A2D9003B0792 /* Sources */,
-				5E82496D2FA7A2D9003B0792 /* Frameworks */,
-				5E82496E2FA7A2D9003B0792 /* Resources */,
+				FA570000000000000000A009 /* Sources */,
+				FA570000000000000000A003 /* Frameworks */,
+				FA570000000000000000A008 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				5E8249722FA7A2D9003B0792 /* PhotoDuplicateFinder */,
+				FA570000000000000000A002 /* DupeRemover */,
 			);
-			name = "Dupe Remover";
+			name = DupeRemover;
 			packageProductDependencies = (
 			);
-			productName = "Dupe Remover";
-			productReference = 5E8249702FA7A2D9003B0792 /* Dupe Remover.app */;
+			productName = DupeRemover;
+			productReference = FA570000000000000000A001 /* Dupe Remover.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		5E8249682FA7A2D9003B0792 /* Project object */ = {
+		FA570000000000000000A007 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2640;
 				LastUpgradeCheck = 2640;
 				TargetAttributes = {
-					5E82496F2FA7A2D9003B0792 = {
+					FA570000000000000000A006 = {
 						CreatedOnToolsVersion = 26.4.1;
 					};
 				};
 			};
-			buildConfigurationList = 5E82496B2FA7A2D9003B0792 /* Build configuration list for PBXProject "PhotoDuplicateFinder" */;
+			buildConfigurationList = FA570000000000000000A010 /* Build configuration list for PBXProject "DupeRemover" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
 				Base,
 			);
-			mainGroup = 5E8249672FA7A2D9003B0792;
+			mainGroup = FA570000000000000000A004;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
-			productRefGroup = 5E8249712FA7A2D9003B0792 /* Products */;
+			productRefGroup = FA570000000000000000A005 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				5E82496F2FA7A2D9003B0792 /* Dupe Remover */,
+				FA570000000000000000A006 /* DupeRemover */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		5E82496E2FA7A2D9003B0792 /* Resources */ = {
+		FA570000000000000000A008 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -115,7 +115,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		5E82496C2FA7A2D9003B0792 /* Sources */ = {
+		FA570000000000000000A009 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -125,7 +125,7 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		5E8249792FA7A2DB003B0792 /* Debug */ = {
+		FA570000000000000000A012 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -160,7 +160,6 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = "";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -178,16 +177,19 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = auto;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 			name = Debug;
 		};
-		5E82497A2FA7A2DB003B0792 /* Release */ = {
+		FA570000000000000000A013 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -222,7 +224,6 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = "";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -234,125 +235,157 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				SDKROOT = auto;
 				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
 		};
-		5E82497C2FA7A2DB003B0792 /* Debug */ = {
+		FA570000000000000000A014 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = PhotoDuplicateFinder/PhotoDuplicateFinder.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "DupeRemover/DupeRemover-macOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = MRYMJMR49S;
-				ENABLE_APP_SANDBOX = YES;
-				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
-				ENABLE_OUTGOING_NETWORK_CONNECTIONS = NO;
+				"ENABLE_APP_SANDBOX[sdk=macosx*]" = YES;
+				"ENABLE_HARDENED_RUNTIME[sdk=macosx*]" = YES;
+				"ENABLE_INCOMING_NETWORK_CONNECTIONS[sdk=macosx*]" = NO;
+				"ENABLE_OUTGOING_NETWORK_CONNECTIONS[sdk=macosx*]" = NO;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
-				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
-				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
-				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
-				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
-				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
-				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
-				ENABLE_RESOURCE_ACCESS_USB = NO;
-				ENABLE_USER_SELECTED_FILES = readwrite;
+				"ENABLE_RESOURCE_ACCESS_AUDIO_INPUT[sdk=macosx*]" = NO;
+				"ENABLE_RESOURCE_ACCESS_BLUETOOTH[sdk=macosx*]" = NO;
+				"ENABLE_RESOURCE_ACCESS_CALENDARS[sdk=macosx*]" = NO;
+				"ENABLE_RESOURCE_ACCESS_CAMERA[sdk=macosx*]" = NO;
+				"ENABLE_RESOURCE_ACCESS_CONTACTS[sdk=macosx*]" = NO;
+				"ENABLE_RESOURCE_ACCESS_LOCATION[sdk=macosx*]" = NO;
+				"ENABLE_RESOURCE_ACCESS_PRINTING[sdk=macosx*]" = NO;
+				"ENABLE_RESOURCE_ACCESS_USB[sdk=macosx*]" = NO;
+				"ENABLE_USER_SELECTED_FILES[sdk=macosx*]" = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Dupe Remover";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Mathieu Rancourt. All rights reserved.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Dupe Remover needs access to your Photos library to find and remove duplicate images.";
-				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Dupe Remover compares the photos in your library on this device to find duplicates and visually similar shots, so you can delete the extras. Nothing is uploaded.";
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphone*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphone*]" = YES;
+				"INFOPLIST_KEY_UISupportedInterfaceOrientations[sdk=iphone*]" = UIInterfaceOrientationPortrait;
+				"INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad[sdk=iphone*]" = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				"LD_RUNPATH_SEARCH_PATHS[sdk=iphone*]" = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.matranc.duperemover;
 				PRODUCT_NAME = "Dupe Remover";
-				SDKROOT = macosx;
+				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
+				"TARGETED_DEVICE_FAMILY[sdk=iphone*]" = "1,2";
 			};
 			name = Debug;
 		};
-		5E82497D2FA7A2DB003B0792 /* Release */ = {
+		FA570000000000000000A015 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = PhotoDuplicateFinder/PhotoDuplicateFinder.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "DupeRemover/DupeRemover-macOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = MRYMJMR49S;
-				ENABLE_APP_SANDBOX = YES;
-				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
-				ENABLE_OUTGOING_NETWORK_CONNECTIONS = NO;
+				"ENABLE_APP_SANDBOX[sdk=macosx*]" = YES;
+				"ENABLE_HARDENED_RUNTIME[sdk=macosx*]" = YES;
+				"ENABLE_INCOMING_NETWORK_CONNECTIONS[sdk=macosx*]" = NO;
+				"ENABLE_OUTGOING_NETWORK_CONNECTIONS[sdk=macosx*]" = NO;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
-				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
-				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
-				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
-				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
-				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
-				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
-				ENABLE_RESOURCE_ACCESS_USB = NO;
-				ENABLE_USER_SELECTED_FILES = readwrite;
+				"ENABLE_RESOURCE_ACCESS_AUDIO_INPUT[sdk=macosx*]" = NO;
+				"ENABLE_RESOURCE_ACCESS_BLUETOOTH[sdk=macosx*]" = NO;
+				"ENABLE_RESOURCE_ACCESS_CALENDARS[sdk=macosx*]" = NO;
+				"ENABLE_RESOURCE_ACCESS_CAMERA[sdk=macosx*]" = NO;
+				"ENABLE_RESOURCE_ACCESS_CONTACTS[sdk=macosx*]" = NO;
+				"ENABLE_RESOURCE_ACCESS_LOCATION[sdk=macosx*]" = NO;
+				"ENABLE_RESOURCE_ACCESS_PRINTING[sdk=macosx*]" = NO;
+				"ENABLE_RESOURCE_ACCESS_USB[sdk=macosx*]" = NO;
+				"ENABLE_USER_SELECTED_FILES[sdk=macosx*]" = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Dupe Remover";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Mathieu Rancourt. All rights reserved.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Dupe Remover needs access to your Photos library to find and remove duplicate images.";
-				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Dupe Remover compares the photos in your library on this device to find duplicates and visually similar shots, so you can delete the extras. Nothing is uploaded.";
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphone*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphone*]" = YES;
+				"INFOPLIST_KEY_UISupportedInterfaceOrientations[sdk=iphone*]" = UIInterfaceOrientationPortrait;
+				"INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad[sdk=iphone*]" = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				"LD_RUNPATH_SEARCH_PATHS[sdk=iphone*]" = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.matranc.duperemover;
 				PRODUCT_NAME = "Dupe Remover";
-				SDKROOT = macosx;
+				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
+				"TARGETED_DEVICE_FAMILY[sdk=iphone*]" = "1,2";
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		5E82496B2FA7A2D9003B0792 /* Build configuration list for PBXProject "PhotoDuplicateFinder" */ = {
+		FA570000000000000000A010 /* Build configuration list for PBXProject "DupeRemover" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				5E8249792FA7A2DB003B0792 /* Debug */,
-				5E82497A2FA7A2DB003B0792 /* Release */,
+				FA570000000000000000A012 /* Debug */,
+				FA570000000000000000A013 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		5E82497B2FA7A2DB003B0792 /* Build configuration list for PBXNativeTarget "Dupe Remover" */ = {
+		FA570000000000000000A011 /* Build configuration list for PBXNativeTarget "DupeRemover" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				5E82497C2FA7A2DB003B0792 /* Debug */,
-				5E82497D2FA7A2DB003B0792 /* Release */,
+				FA570000000000000000A014 /* Debug */,
+				FA570000000000000000A015 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};
-	rootObject = 5E8249682FA7A2D9003B0792 /* Project object */;
+	rootObject = FA570000000000000000A007 /* Project object */;
 }
