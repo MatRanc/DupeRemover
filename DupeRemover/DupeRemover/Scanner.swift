@@ -1,8 +1,53 @@
 import Foundation
 import Combine
 import Vision
-import UIKit
 import Photos
+#if os(iOS)
+import UIKit
+#else
+import AppKit
+#endif
+
+// What a scan can look at. Both cases carry only a Sendable identifier: the
+// PHAsset is re-fetched inside whichever task needs it, never handed across a
+// task boundary, because it isn't Sendable and pretending otherwise is exactly
+// the kind of assumption that bites under the parallel comparison below.
+nonisolated enum ItemSource: Hashable, Sendable {
+    case file(URL)
+    case asset(String)      // PHAsset.localIdentifier
+}
+
+// One scannable image, from either source. A cheap Sendable snapshot: enough to
+// group, cache, and display without touching Photos or the disk again.
+nonisolated struct ScanItem: Identifiable, Hashable, Sendable {
+    let id: String          // file path or PHAsset.localIdentifier
+    let source: ItemSource
+    let name: String
+    let mtime: Double       // modification (or creation) date as epoch seconds
+    let creationDate: Double
+    let byteSize: Int64     // 0 when unknown (iCloud-only originals)
+    let pixelWidth: Int     // 0 for files — never decoded just to measure
+    let pixelHeight: Int
+    // Cheap collision key for identical-detection and the cache's change token:
+    // pixel count for assets, byte size for files. See CacheEntry.token.
+    let token: Int64
+
+    var localURL: URL? {
+        if case .file(let url) = source { return url }
+        return nil
+    }
+}
+
+nonisolated enum MatchMode {
+    case identical
+    case similar
+}
+
+nonisolated struct DuplicateGroup: Identifiable {
+    let id: String
+    var items: [ScanItem]
+    var mode: MatchMode
+}
 
 // Default distance below which two photos are considered "similar" (Vision feature
 // print). 0.0 = identical embeddings; ~0.2 = visually near-duplicate; 0.5+ =
@@ -130,13 +175,44 @@ nonisolated final class UnionFind {
     }
 }
 
+nonisolated enum ScanSource: Hashable {
+    case folder
+    case photosLibrary
+}
+
+// The two places the pipeline has to know where an item came from. Everything
+// else — caching, grouping, comparison — works on the ScanItem alone.
+
+nonisolated func sha256(of item: ScanItem) async -> String? {
+    switch item.source {
+    case .file(let url): return FileSource.sha256(of: url)
+    case .asset(let id): return await PhotoLibrary.sha256(forAssetID: id)
+    }
+}
+
+/// The downscaled image handed to Vision, same target size from either source.
+nonisolated func visionImage(for item: ScanItem) async -> CGImage? {
+    switch item.source {
+    case .file(let url): return FileSource.cgImage(at: url, maxPixel: visionInputPixel)
+    case .asset(let id): return await PhotoLibrary.cgImage(forAssetID: id, maxPixel: visionInputPixel)
+    }
+}
+
+private let idleScanPrompt: String = {
+    #if os(macOS)
+    "Choose a folder to scan."
+    #else
+    "Tap Scan to find duplicates in your library."
+    #endif
+}()
+
 @MainActor
 final class ScanViewModel: ObservableObject {
     @Published var groups: [DuplicateGroup] = []
     @Published var isScanning = false
     // 0...1 drives a determinate progress bar; nil means indeterminate (spinner).
     @Published var progress: Double? = nil
-    @Published var statusText = "Tap Scan to find duplicates in your library."
+    @Published var statusText = idleScanPrompt
     // "Step 2 of 4 · Hashing" — which phase of the scan is running.
     @Published var stepText = ""
     // "about 2m 30s left", nil until enough work is done to extrapolate.
@@ -149,6 +225,15 @@ final class ScanViewModel: ObservableObject {
     @Published var cacheEntries = 0
     @Published var cacheSize: Int64 = 0
 
+    // Where to scan. Each platform defaults to the source it shipped with.
+    #if os(macOS)
+    @Published var scanSource: ScanSource = .folder
+    #else
+    @Published var scanSource: ScanSource = .photosLibrary
+    #endif
+    @Published private(set) var hasScanned = false
+    @Published private(set) var lastScannedFolders: [URL] = []
+
     // nil = entire library. Otherwise scoped to one album.
     @Published var selectedAlbumID: String? = nil
     @Published var selectedAlbumTitle: String? = nil
@@ -157,6 +242,13 @@ final class ScanViewModel: ObservableObject {
     @Published var authStatus = PhotoLibrary.authorizationStatus
 
     private let cache = CacheStore()
+
+    /// Folders whose security-scoped access we currently hold. Claimed when the
+    /// user picks them and held until the next pick, because thumbnails and
+    /// deletion touch the files long after the scan ends.
+    // ponytail: no bookmarks, so a relaunch re-prompts — same as the Mac app
+    // has always behaved. Persist bookmarks if that ever grates.
+    private var scopedFolders: [URL] = []
 
     init() {
         Task { await refreshCacheStats() }
@@ -197,56 +289,132 @@ final class ScanViewModel: ObservableObject {
         statusText = "Cache cleared."
     }
 
-    func scan() async {
+    // MARK: Starting a scan
+
+    /// Claims security-scoped access to picked folders and drops the previous
+    /// claim. `startAccessing…` returns false for URLs that don't need a claim
+    /// (an NSOpenPanel URL on macOS), which are simply not tracked for release.
+    private func claimAccess(to folders: [URL]) {
+        for url in scopedFolders { url.stopAccessingSecurityScopedResource() }
+        scopedFolders = folders.filter { $0.startAccessingSecurityScopedResource() }
+    }
+
+    #if os(macOS)
+    /// macOS keeps its NSOpenPanel; iOS presents `.fileImporter` from the view.
+    /// One `.fileImporter` would serve both — tracked as an issue rather than
+    /// changed under a merge.
+    func chooseFoldersAndScan() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Scan"
+        guard panel.runModal() == .OK else { return }
+        let urls = panel.urls
+        Task { await scanFolders(urls) }
+    }
+    #endif
+
+    func scanFolders(_ folders: [URL]) async {
+        guard !folders.isEmpty else { return }
+        scanSource = .folder
+        claimAccess(to: folders)
+        lastScannedFolders = folders
+
+        await withScanChrome {
+            self.stepText = "Step 1 of \(self.totalSteps) · Reading folders"
+            self.statusText = "Looking for images…"
+            return await Task.detached(priority: .userInitiated) {
+                FileSource.enumerate(folders)
+            }.value
+        } emptyMessage: {
+            "No image files found."
+        }
+    }
+
+    func scanLibrary() async {
         guard hasFullOrLimitedAccess else { return }
+        scanSource = .photosLibrary
+        let albumID = selectedAlbumID
+
+        await withScanChrome {
+            self.stepText = "Step 1 of \(self.totalSteps) · Reading library"
+            self.statusText = "Reading your library…"
+            self.progress = 0
+
+            // Read assets off the main actor, streaming progress back so the UI shows
+            // a real progress bar (reading per-asset resources is slow on big
+            // libraries).
+            let readStart = Date()
+            let (progressStream, progressCont) = AsyncStream<Double>.makeStream()
+            let fetchTask = Task.detached(priority: .userInitiated) { () -> [ScanItem] in
+                let assets = PhotoLibrary.fetchImageAssets(inAlbum: albumID) { frac in
+                    progressCont.yield(frac)
+                }
+                progressCont.finish()
+                return assets
+            }
+            for await frac in progressStream {
+                self.progress = frac
+                self.statusText = "Reading your library… \(Int(frac * 100))%"
+                self.etaText = remainingTimeText(start: readStart, fraction: frac)
+            }
+            return await fetchTask.value
+        } emptyMessage: {
+            "No photos found\(self.selectedAlbumTitle.map { " in \($0)" } ?? "")."
+        }
+    }
+
+    func rescan() async {
+        guard hasScanned, !isScanning else { return }
+        switch scanSource {
+        case .folder: await scanFolders(lastScannedFolders)
+        case .photosLibrary: await scanLibrary()
+        }
+    }
+
+    private var totalSteps: Int { matchSimilar ? 4 : 2 }
+
+    /// Resets the UI, runs `read` to gather items, then hands them to `runScan`.
+    /// The two sources differ only in that first step.
+    private func withScanChrome(
+        read: () async -> [ScanItem],
+        emptyMessage: () -> String
+    ) async {
         isScanning = true
         groups = []
         selected = []
         progress = 0
         etaText = nil
         hintText = nil
+        hasScanned = true
 
+        #if os(iOS)
         // Scanning is long and touch-free, so the display would otherwise sleep and
-        // suspend the app mid-scan.
+        // suspend the app mid-scan. macOS keeps running with the display asleep.
         UIApplication.shared.isIdleTimerDisabled = true
         defer { UIApplication.shared.isIdleTimerDisabled = false }
+        #endif
 
-        let totalSteps = matchSimilar ? 4 : 2
+        let items = await read()
+        progress = nil
+        etaText = nil
+
+        guard !items.isEmpty else {
+            statusText = emptyMessage()
+            stepText = ""
+            isScanning = false
+            return
+        }
+        await runScan(items)
+    }
+
+    private func runScan(_ allAssets: [ScanItem]) async {
+        let totalSteps = self.totalSteps
         func beginStep(_ n: Int, _ name: String) {
             stepText = "Step \(n) of \(totalSteps) · \(name)"
             etaText = nil
             hintText = nil
-        }
-
-        beginStep(1, "Reading library")
-        statusText = "Reading your library…"
-
-        // Read assets off the main actor, streaming progress back so the UI shows a
-        // real progress bar (reading per-asset resources is slow on big libraries).
-        let albumID = selectedAlbumID
-        let readStart = Date()
-        let (progressStream, progressCont) = AsyncStream<Double>.makeStream()
-        let fetchTask = Task.detached(priority: .userInitiated) { () -> [PhotoAsset] in
-            let assets = PhotoLibrary.fetchImageAssets(inAlbum: albumID) { frac in
-                progressCont.yield(frac)
-            }
-            progressCont.finish()
-            return assets
-        }
-        for await frac in progressStream {
-            progress = frac
-            statusText = "Reading your library… \(Int(frac * 100))%"
-            etaText = remainingTimeText(start: readStart, fraction: frac)
-        }
-        let allAssets = await fetchTask.value
-        progress = nil
-        etaText = nil
-
-        guard !allAssets.isEmpty else {
-            statusText = "No photos found\(selectedAlbumTitle.map { " in \($0)" } ?? "")."
-            stepText = ""
-            isScanning = false
-            return
         }
 
         let uf = UnionFind(count: allAssets.count)
@@ -256,7 +424,7 @@ final class ScanViewModel: ObservableObject {
         // collisions (byte-identical files always share their dimensions, so this
         // skips hashing the vast majority of one-of-a-kind photos).
         var byDims: [Int64: [Int]] = [:]
-        for (i, a) in allAssets.enumerated() { byDims[a.pixelCount, default: []].append(i) }
+        for (i, a) in allAssets.enumerated() { byDims[a.token, default: []].append(i) }
         let candidateIndexes = byDims.values.filter { $0.count > 1 }.flatMap { $0 }
 
         beginStep(2, "Finding identical photos")
@@ -265,7 +433,7 @@ final class ScanViewModel: ObservableObject {
         var toHash: [Int] = []
         for i in candidateIndexes {
             let a = allAssets[i]
-            if let entry = await cache.get(id: a.id, mtime: a.mtime, pixelCount: a.pixelCount),
+            if let entry = await cache.get(id: a.id, mtime: a.mtime, token: a.token),
                let h = entry.sha256 {
                 hashByIndex[i] = h
             } else {
@@ -278,7 +446,7 @@ final class ScanViewModel: ObservableObject {
             var done = 0
             let hashStart = Date()
             await withTaskGroupLimited(items: toHash, maxConcurrent: 4) { i in
-                let h = await PhotoLibrary.sha256(forAssetID: allAssets[i].id)
+                let h = await sha256(of: allAssets[i])
                 return (i, h)
             } onResult: { result in
                 let (i, h) = result
@@ -286,7 +454,7 @@ final class ScanViewModel: ObservableObject {
                 if let h {
                     hashByIndex[i] = h
                     let a = allAssets[i]
-                    await self.cache.setHash(id: a.id, mtime: a.mtime, pixelCount: a.pixelCount, sha256: h)
+                    await self.cache.setHash(id: a.id, mtime: a.mtime, token: a.token, sha256: h)
                 }
                 self.progress = Double(done) / Double(toHash.count)
                 self.statusText = "Hashing \(done)/\(toHash.count) photos…"
@@ -312,7 +480,7 @@ final class ScanViewModel: ObservableObject {
             var printsData: [Int: Data] = [:]
             var missing: [Int] = []
             for (i, a) in allAssets.enumerated() {
-                if let entry = await cache.get(id: a.id, mtime: a.mtime, pixelCount: a.pixelCount),
+                if let entry = await cache.get(id: a.id, mtime: a.mtime, token: a.token),
                    let data = comparableFeaturePrint(entry, revision: currentFeaturePrintRevision) {
                     printsData[i] = data
                 } else {
@@ -331,8 +499,7 @@ final class ScanViewModel: ObservableObject {
                 // requests, so cap parallelism. Beyond ~4 we just multiply image
                 // request contention without speeding up inference.
                 await withTaskGroupLimited(items: missing, maxConcurrent: 4) { i -> (Int, ArchivedPrint?) in
-                    let id = allAssets[i].id
-                    guard let cg = await PhotoLibrary.cgImage(forAssetID: id, maxPixel: visionInputPixel),
+                    guard let cg = await visionImage(for: allAssets[i]),
                           let obs = computeFeaturePrint(from: cg),
                           let data = archiveFeaturePrint(obs) else { return (i, nil) }
                     return (i, ArchivedPrint(data: data, revision: obs.requestRevision))
@@ -343,7 +510,7 @@ final class ScanViewModel: ObservableObject {
                         printsData[i] = archived.data
                         let a = allAssets[i]
                         await self.cache.setFeaturePrint(
-                            id: a.id, mtime: a.mtime, pixelCount: a.pixelCount,
+                            id: a.id, mtime: a.mtime, token: a.token,
                             data: archived.data, revision: archived.revision)
                     }
                     self.progress = Double(done) / Double(total)
@@ -472,16 +639,16 @@ final class ScanViewModel: ObservableObject {
             let mode: MatchMode = (allHashed && theseHashes.count == 1) ? .identical : .similar
             return DuplicateGroup(
                 id: UUID().uuidString,
-                assets: assets.sorted { ($0.creationDate, $0.id) < ($1.creationDate, $1.id) },
+                items: assets.sorted { ($0.creationDate, $0.id) < ($1.creationDate, $1.id) },
                 mode: mode
             )
         }.sorted { a, b in
             if a.mode != b.mode { return a.mode == .identical }
-            return a.assets.count > b.assets.count
+            return a.items.count > b.items.count
         }
 
         groups = resultGroups
-        let dupCount = resultGroups.reduce(0) { $0 + $1.assets.count - 1 }
+        let dupCount = resultGroups.reduce(0) { $0 + $1.items.count - 1 }
         let identicalCount = resultGroups.filter { $0.mode == .identical }.count
         let similarCount = resultGroups.filter { $0.mode == .similar }.count
         if resultGroups.isEmpty {
@@ -508,31 +675,60 @@ final class ScanViewModel: ObservableObject {
     func selectAllButFirstInEveryGroup() {
         var next: Set<String> = []
         for g in groups {
-            for a in g.assets.dropFirst() { next.insert(a.id) }
+            for a in g.items.dropFirst() { next.insert(a.id) }
         }
         selected = next
     }
 
     func clearSelection() { selected = [] }
 
+    /// Everything selected goes somewhere recoverable: files to the Trash, assets
+    /// to Recently Deleted. Files are trashed one by one so one unwritable file
+    /// doesn't cost the user the whole batch.
     func deleteSelected() async {
-        let ids = Array(selected)
-        guard !ids.isEmpty else { return }
-        do {
-            try await PhotoLibrary.deleteAssets(ids: ids)
-            let trashed = Set(ids)
-            groups = groups.compactMap { g in
-                let remaining = g.assets.filter { !trashed.contains($0.id) }
-                return remaining.count > 1
-                    ? DuplicateGroup(id: g.id, assets: remaining, mode: g.mode)
-                    : nil
+        let chosen = groups.flatMap { $0.items }.filter { selected.contains($0.id) }
+        guard !chosen.isEmpty else { return }
+
+        var trashed: Set<String> = []
+        var failed = 0
+
+        for item in chosen {
+            guard let url = item.localURL else { continue }
+            do {
+                var resulting: NSURL?
+                try FileManager.default.trashItem(at: url, resultingItemURL: &resulting)
+                trashed.insert(item.id)
+            } catch {
+                failed += 1
             }
-            selected = []
-            statusText = "Deleted \(trashed.count) — recoverable from Recently Deleted."
-        } catch {
-            // The user cancelled the system confirmation, or deletion failed.
-            statusText = "Nothing deleted."
         }
+
+        let assetIDs = chosen.compactMap { item -> String? in
+            if case .asset(let id) = item.source { return id }
+            return nil
+        }
+        if !assetIDs.isEmpty {
+            do {
+                // The system shows its own confirmation here and throws if the user
+                // declines it.
+                try await PhotoLibrary.deleteAssets(ids: assetIDs)
+                trashed.formUnion(assetIDs)
+            } catch {
+                failed += assetIDs.count
+            }
+        }
+
+        groups = groups.compactMap { g in
+            let remaining = g.items.filter { !trashed.contains($0.id) }
+            return remaining.count > 1
+                ? DuplicateGroup(id: g.id, items: remaining, mode: g.mode)
+                : nil
+        }
+        selected = []
+        statusText = trashed.isEmpty
+            ? "Nothing deleted."
+            : "Deleted \(trashed.count) — recoverable from the Trash or Recently Deleted."
+                + (failed > 0 ? " \(failed) failed." : "")
     }
 }
 

@@ -1,28 +1,33 @@
 import SwiftUI
 import Photos
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @StateObject private var vm = ScanViewModel()
-    @Environment(\.scenePhase) private var scenePhase
     @State private var showingMatchInfo = false
     @State private var showingAlbumPicker = false
+    @State private var showingFolderPicker = false
+    #if os(iOS)
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showingDeleteConfirm = false
     @State private var showingAbout = false
+    #endif
+
+    // MARK: Shell
+    //
+    // The only genuinely different chrome: iOS stacks controls above a list with a
+    // bottom action bar; macOS puts everything in a window toolbar with a status
+    // line underneath. Everything between them is shared.
 
     var body: some View {
+        #if os(iOS)
         NavigationStack {
-            Group {
-                if vm.hasFullOrLimitedAccess {
-                    mainContent
-                } else {
-                    PermissionView(status: vm.authStatus) {
-                        Task { await vm.requestAccess() }
-                    }
+            content
+                .navigationTitle("Dupe Remover")
+                .inlineNavigationTitle()
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) { cacheMenu }
                 }
-            }
-            .navigationTitle("Dupe Remover")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { toolbarContent }
         }
         .task {
             vm.refreshAuthStatus()
@@ -33,18 +38,216 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingMatchInfo) { MatchInfoSheet() }
         .sheet(isPresented: $showingAbout) { AboutSheet() }
-        .sheet(isPresented: $showingAlbumPicker) {
-            AlbumPickerSheet(
-                albums: vm.albums,
-                selectedID: vm.selectedAlbumID
-            ) { vm.selectAlbum($0) }
+        .sheet(isPresented: $showingAlbumPicker) { albumPicker }
+        .fileImporter(
+            isPresented: $showingFolderPicker,
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: true
+        ) { result in
+            if case .success(let urls) = result {
+                Task { await vm.scanFolders(urls) }
+            }
+        }
+        #else
+        VStack(spacing: 0) {
+            macToolbar
+            Divider()
+            results
+            Divider()
+            statusBar
+        }
+        .frame(minWidth: 680, minHeight: 560)
+        .task {
+            vm.refreshAuthStatus()
+            if vm.hasFullOrLimitedAccess { await vm.loadAlbums() }
+        }
+        .sheet(isPresented: $showingAlbumPicker) { albumPicker }
+        #endif
+    }
+
+    private var albumPicker: some View {
+        AlbumPickerSheet(
+            albums: vm.albums,
+            selectedID: vm.selectedAlbumID
+        ) { vm.selectAlbum($0) }
+    }
+
+    // MARK: Shared controls
+
+    var sourcePicker: some View {
+        Picker("Scan", selection: $vm.scanSource) {
+            Text("Photos Library").tag(ScanSource.photosLibrary)
+            Text("Local Folder").tag(ScanSource.folder)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .disabled(vm.isScanning)
+    }
+
+    /// Starts a scan, or opens the folder picker first when scanning a folder.
+    func startScan() {
+        switch vm.scanSource {
+        case .photosLibrary:
+            Task { await vm.scanLibrary() }
+        case .folder:
+            #if os(macOS)
+            vm.chooseFoldersAndScan()
+            #else
+            showingFolderPicker = true
+            #endif
         }
     }
 
-    // MARK: Main content
+    var cacheMenu: some View {
+        Menu {
+            Text(vm.cacheEntries == 0
+                 ? "Cache is empty"
+                 : "\(vm.cacheEntries) entries · \(formatBytes(vm.cacheSize))")
+            Button("Clear cache") {
+                Task { await vm.clearCache() }
+            }
+            .disabled(vm.cacheEntries == 0)
+            #if os(iOS)
+            Divider()
+            Button("How matching works") { showingMatchInfo = true }
+            Button("About") { showingAbout = true }
+            #endif
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .disabled(vm.isScanning)
+    }
+
+    // MARK: Results
 
     @ViewBuilder
-    private var mainContent: some View {
+    var results: some View {
+        if vm.scanSource == .photosLibrary && !vm.hasFullOrLimitedAccess {
+            PermissionView(status: vm.authStatus) {
+                Task { await vm.requestAccess() }
+            }
+        } else if vm.isScanning {
+            scanProgress
+        } else if vm.groups.isEmpty {
+            VStack(spacing: 10) {
+                Image(systemName: "photo.on.rectangle.angled")
+                    .font(.system(size: 52))
+                    .foregroundStyle(.tertiary)
+                Text(vm.statusText)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+                if vm.authStatus == .limited && vm.scanSource == .photosLibrary {
+                    Text("You've granted access to selected photos only. Scans cover just those.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            groupList
+        }
+    }
+
+    private var groupList: some View {
+        List {
+            ForEach(vm.groups) { group in
+                Section {
+                    ForEach(group.items) { item in
+                        ItemRow(
+                            item: item,
+                            isSelected: vm.selected.contains(item.id)
+                        ) { vm.toggle(item.id) }
+                    }
+                } header: {
+                    groupHeader(for: group)
+                }
+            }
+        }
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        #endif
+    }
+
+    private var scanProgress: some View {
+        VStack(spacing: 14) {
+            if !vm.stepText.isEmpty {
+                Text(vm.stepText)
+                    .font(.headline)
+                    .multilineTextAlignment(.center)
+            }
+            if let progress = vm.progress {
+                ProgressView(value: progress) {
+                    Text(vm.statusText)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .progressViewStyle(.linear)
+                .frame(maxWidth: 260)
+            } else {
+                ProgressView()
+                Text(vm.statusText)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            if let eta = vm.etaText {
+                Text(eta)
+                    .font(.callout)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            if let hint = vm.hintText {
+                Text(hint)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+            }
+            #if os(iOS)
+            Label("Keep Dupe Remover open while it scans.", systemImage: "exclamationmark.circle")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .labelStyle(.titleAndIcon)
+                .multilineTextAlignment(.center)
+                .padding(.top, 4)
+            #endif
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+    }
+
+    private func groupHeader(for group: DuplicateGroup) -> some View {
+        HStack(spacing: 8) {
+            Text(group.mode == .identical ? "Identical" : "Similar")
+                .font(.caption2)
+                .fontWeight(.semibold)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .background(
+                    group.mode == .identical
+                        ? Color.blue.opacity(0.18)
+                        : Color.purple.opacity(0.18)
+                )
+                .clipShape(Capsule())
+            Text("\(group.items.count) photos")
+            if group.mode == .identical, let size = group.items.first?.byteSize, size > 0 {
+                Text("· \(formatBytes(size)) each")
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .textCase(nil)
+        .font(.subheadline)
+    }
+}
+
+// MARK: - iOS chrome
+
+#if os(iOS)
+extension ContentView {
+    var content: some View {
         VStack(spacing: 0) {
             controls
             Divider()
@@ -55,22 +258,25 @@ struct ContentView: View {
 
     private var controls: some View {
         VStack(spacing: 12) {
+            sourcePicker
+
             HStack {
-                Button {
-                    showingAlbumPicker = true
-                } label: {
-                    Label(vm.selectedAlbumTitle ?? "Entire library", systemImage: "photo.stack")
-                        .lineLimit(1)
+                if vm.scanSource == .photosLibrary {
+                    Button {
+                        showingAlbumPicker = true
+                    } label: {
+                        Label(vm.selectedAlbumTitle ?? "Entire library", systemImage: "photo.stack")
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(vm.isScanning)
                 }
-                .buttonStyle(.bordered)
-                .disabled(vm.isScanning)
 
                 Spacer()
 
-                Button {
-                    Task { await vm.scan() }
-                } label: {
-                    Label("Scan", systemImage: "sparkle.magnifyingglass")
+                Button(action: startScan) {
+                    Label(vm.scanSource == .folder ? "Choose folder…" : "Scan",
+                          systemImage: vm.scanSource == .folder ? "folder" : "sparkle.magnifyingglass")
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(vm.isScanning)
@@ -110,110 +316,6 @@ struct ContentView: View {
         .padding(.vertical, 12)
     }
 
-    @ViewBuilder
-    private var results: some View {
-        if vm.isScanning {
-            VStack(spacing: 14) {
-                if !vm.stepText.isEmpty {
-                    Text(vm.stepText)
-                        .font(.headline)
-                        .multilineTextAlignment(.center)
-                }
-                if let progress = vm.progress {
-                    ProgressView(value: progress) {
-                        Text(vm.statusText)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .progressViewStyle(.linear)
-                    .frame(maxWidth: 260)
-                } else {
-                    ProgressView()
-                    Text(vm.statusText)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                if let eta = vm.etaText {
-                    Text(eta)
-                        .font(.callout)
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-                if let hint = vm.hintText {
-                    Text(hint)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
-                }
-                Label("Keep Dupe Remover open while it scans.", systemImage: "exclamationmark.circle")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .labelStyle(.titleAndIcon)
-                    .multilineTextAlignment(.center)
-                    .padding(.top, 4)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding()
-        } else if vm.groups.isEmpty {
-            VStack(spacing: 10) {
-                Image(systemName: "photo.on.rectangle.angled")
-                    .font(.system(size: 52))
-                    .foregroundStyle(.tertiary)
-                Text(vm.statusText)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
-                if vm.authStatus == .limited {
-                    Text("You've granted access to selected photos only. Scans cover just those.")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 40)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            List {
-                ForEach(vm.groups) { group in
-                    Section {
-                        ForEach(group.assets) { asset in
-                            AssetRow(
-                                asset: asset,
-                                isSelected: vm.selected.contains(asset.id)
-                            ) { vm.toggle(asset.id) }
-                        }
-                    } header: {
-                        groupHeader(for: group)
-                    }
-                }
-            }
-            .listStyle(.insetGrouped)
-        }
-    }
-
-    private func groupHeader(for group: DuplicateGroup) -> some View {
-        HStack(spacing: 8) {
-            Text(group.mode == .identical ? "Identical" : "Similar")
-                .font(.caption2)
-                .fontWeight(.semibold)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
-                .background(
-                    group.mode == .identical
-                        ? Color.blue.opacity(0.18)
-                        : Color.purple.opacity(0.18)
-                )
-                .clipShape(Capsule())
-            Text("\(group.assets.count) photos")
-            Spacer()
-        }
-        .textCase(nil)
-        .font(.subheadline)
-    }
-
-    // MARK: Bottom bar
-
     private var bottomBar: some View {
         VStack(spacing: 8) {
             if !vm.groups.isEmpty {
@@ -240,7 +342,7 @@ struct ContentView: View {
             .tint(.red)
             .disabled(vm.selected.isEmpty || vm.isScanning)
             .confirmationDialog(
-                "Move \(vm.selected.count) photo\(vm.selected.count == 1 ? "" : "s") to Recently Deleted?",
+                "Delete \(vm.selected.count) photo\(vm.selected.count == 1 ? "" : "s")?",
                 isPresented: $showingDeleteConfirm,
                 titleVisibility: .visible
             ) {
@@ -249,7 +351,7 @@ struct ContentView: View {
                 }
                 Button("Cancel", role: .cancel) { }
             } message: {
-                Text("They'll stay recoverable in Recently Deleted for about 30 days.")
+                Text("Library photos stay in Recently Deleted for about 30 days; picked files go to the Trash.")
             }
         }
         .padding(.horizontal)
@@ -257,30 +359,135 @@ struct ContentView: View {
         .background(.bar)
         .opacity(vm.groups.isEmpty ? 0 : 1)
     }
+}
+#endif
 
-    // MARK: Toolbar
+// MARK: - macOS chrome
 
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            Menu {
-                Text(vm.cacheEntries == 0
-                     ? "Cache is empty"
-                     : "\(vm.cacheEntries) entries · \(formatBytes(vm.cacheSize))")
-                Button("Clear cache") {
-                    Task { await vm.clearCache() }
-                }
-                .disabled(vm.cacheEntries == 0)
-                Divider()
-                Button("How matching works") { showingMatchInfo = true }
-                Button("About") { showingAbout = true }
-            } label: {
-                Image(systemName: "ellipsis.circle")
+#if os(macOS)
+extension ContentView {
+    var macToolbar: some View {
+        VStack(spacing: 10) {
+            primaryRow
+            matchingRow
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+    }
+
+    private var primaryRow: some View {
+        HStack(spacing: 10) {
+            sourcePicker
+                .fixedSize()
+
+            Button(action: startScan) {
+                vm.scanSource == .folder
+                    ? Label("Choose folder…", systemImage: "folder")
+                    : Label("Scan Library", systemImage: "photo.stack")
             }
-            .disabled(vm.isScanning)
+            .disabled(vm.isScanning
+                      || (vm.scanSource == .photosLibrary && !vm.hasFullOrLimitedAccess))
+
+            if vm.scanSource == .photosLibrary {
+                Button {
+                    showingAlbumPicker = true
+                } label: {
+                    Label(vm.selectedAlbumTitle ?? "Entire library", systemImage: "rectangle.stack")
+                        .lineLimit(1)
+                }
+                .disabled(vm.isScanning)
+                .help("Limit the scan to one album")
+            }
+
+            Button {
+                Task { await vm.rescan() }
+            } label: {
+                Label("Rescan", systemImage: "arrow.clockwise")
+            }
+            .disabled(!vm.hasScanned || vm.isScanning
+                      || (vm.scanSource == .folder && vm.lastScannedFolders.isEmpty))
+            .help(vm.scanSource == .folder
+                  ? (vm.lastScannedFolders.isEmpty
+                     ? "No folder scanned yet"
+                     : "Rescan: " + vm.lastScannedFolders.map { $0.lastPathComponent }.joined(separator: ", "))
+                  : "Rescan Photos Library")
+
+            Spacer(minLength: 8)
+
+            cacheMenu
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Cache options")
+
+            Button(role: .destructive) {
+                Task { await vm.deleteSelected() }
+            } label: {
+                Label("Move \(vm.selected.count) to Trash", systemImage: "trash")
+            }
+            .disabled(vm.selected.isEmpty || vm.isScanning)
+            .keyboardShortcut(.delete)
         }
     }
+
+    private var matchingRow: some View {
+        HStack(spacing: 10) {
+            Toggle("Match similar photos", isOn: $vm.matchSimilar)
+                .toggleStyle(.checkbox)
+                .disabled(vm.isScanning)
+                .fixedSize()
+
+            Button {
+                showingMatchInfo.toggle()
+            } label: {
+                Image(systemName: "info.circle")
+            }
+            .buttonStyle(.borderless)
+            .help("How matching works")
+            .popover(isPresented: $showingMatchInfo, arrowEdge: .bottom) {
+                MatchInfoContent().frame(width: 380)
+            }
+
+            HStack(spacing: 6) {
+                Text("Strictness")
+                    .foregroundStyle(.secondary)
+                Slider(value: $vm.similarityPercent, in: 5...40, step: 1)
+                    .frame(minWidth: 90, idealWidth: 130, maxWidth: 160)
+                Text("\(Int(vm.similarityPercent))%")
+                    .monospacedDigit()
+                    .frame(width: 34, alignment: .leading)
+                    .foregroundStyle(.secondary)
+            }
+            .font(.callout)
+            .disabled(!vm.matchSimilar || vm.isScanning)
+            .help("Lower = stricter (only very-similar photos). 20% works well for most cases.")
+            .layoutPriority(1)
+
+            Spacer(minLength: 8)
+
+            Button("Select all but first") {
+                vm.selectAllButFirstInEveryGroup()
+            }
+            .disabled(vm.groups.isEmpty || vm.isScanning)
+            .fixedSize()
+
+            Button("Clear selection") {
+                vm.clearSelection()
+            }
+            .disabled(vm.selected.isEmpty)
+            .fixedSize()
+        }
+    }
+
+    var statusBar: some View {
+        HStack {
+            Text(vm.statusText).foregroundStyle(.secondary).font(.callout)
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
 }
+#endif
 
 #Preview {
     ContentView()

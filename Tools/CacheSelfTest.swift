@@ -25,7 +25,7 @@ func tempDir() -> URL {
 }
 
 func entry(_ store: CacheStore, _ id: String) async -> CacheEntry? {
-    await store.get(id: id, mtime: 1, pixelCount: 100)
+    await store.get(id: id, mtime: 1, token: 100)
 }
 
 @main
@@ -36,8 +36,8 @@ struct CacheSelfTest {
         do {
             let dir = tempDir()
             let a = CacheStore(directory: dir)
-            await a.setHash(id: "photo-1", mtime: 1, pixelCount: 100, sha256: "abc")
-            await a.setFeaturePrint(id: "photo-2", mtime: 1, pixelCount: 100, data: Data([1, 2, 3]), revision: 2)
+            await a.setHash(id: "photo-1", mtime: 1, token: 100, sha256: "abc")
+            await a.setFeaturePrint(id: "photo-2", mtime: 1, token: 100, data: Data([1, 2, 3]), revision: 2)
             await a.flushNow()
 
             let b = CacheStore(directory: dir)
@@ -57,7 +57,7 @@ struct CacheSelfTest {
             for i in blob.indices { blob[i] = UInt8.random(in: 0...255) }
 
             let a = CacheStore(directory: dir)
-            await a.setFeaturePrint(id: "p", mtime: 1, pixelCount: 100, data: blob, revision: 2)
+            await a.setFeaturePrint(id: "p", mtime: 1, token: 100, data: blob, revision: 2)
             await a.flushNow()
 
             let b = CacheStore(directory: dir)
@@ -73,7 +73,7 @@ struct CacheSelfTest {
         do {
             let dir = tempDir()
             let a = CacheStore(directory: dir)
-            await a.setFeaturePrint(id: "p", mtime: 1, pixelCount: 100,
+            await a.setFeaturePrint(id: "p", mtime: 1, token: 100,
                                     data: Data([7, 7, 7]), revision: 2)
             await a.flushNow()
 
@@ -90,8 +90,8 @@ struct CacheSelfTest {
         do {
             let dir = tempDir()
             let a = CacheStore(directory: dir)
-            await a.setHash(id: "p", mtime: 1, pixelCount: 100, sha256: "abc")
-            await a.setFeaturePrint(id: "p", mtime: 1, pixelCount: 100,
+            await a.setHash(id: "p", mtime: 1, token: 100, sha256: "abc")
+            await a.setFeaturePrint(id: "p", mtime: 1, token: 100,
                                     data: Data([1]), revision: 2)
             await a.flushNow()
 
@@ -103,7 +103,7 @@ struct CacheSelfTest {
         // Entries predating revision tracking decode with nil and must not be
         // mistaken for any current revision.
         do {
-            let legacy = CacheEntry(mtime: 1, pixelCount: 100, sha256: nil,
+            let legacy = CacheEntry(mtime: 1, token: 100, sha256: nil,
                                     featurePrintData: Data([1, 2]), featurePrintRevision: nil)
             check(legacy.featurePrint(revision: 2) == nil,
                   "unknown revision never passes as current")
@@ -113,8 +113,8 @@ struct CacheSelfTest {
         do {
             let dir = tempDir()
             let a = CacheStore(directory: dir)
-            await a.setHash(id: "p", mtime: 1, pixelCount: 100, sha256: "abc")
-            await a.setFeaturePrint(id: "p", mtime: 1, pixelCount: 100, data: Data([9]), revision: 2)
+            await a.setHash(id: "p", mtime: 1, token: 100, sha256: "abc")
+            await a.setFeaturePrint(id: "p", mtime: 1, token: 100, data: Data([9]), revision: 2)
             await a.flushNow()
 
             let b = CacheStore(directory: dir)
@@ -129,7 +129,7 @@ struct CacheSelfTest {
             let log = dir.appendingPathComponent("cache.log")
             let a = CacheStore(directory: dir)
             for i in 0..<20 {
-                await a.setHash(id: "photo-\(i)", mtime: 1, pixelCount: 100, sha256: "h\(i)")
+                await a.setHash(id: "photo-\(i)", mtime: 1, token: 100, sha256: "h\(i)")
             }
             await a.flushNow()
 
@@ -146,9 +146,9 @@ struct CacheSelfTest {
         do {
             let dir = tempDir()
             let a = CacheStore(directory: dir)
-            await a.setHash(id: "p", mtime: 1, pixelCount: 100, sha256: "abc")
-            check(await a.get(id: "p", mtime: 2, pixelCount: 100) == nil, "changed mtime misses")
-            check(await a.get(id: "p", mtime: 1, pixelCount: 999) == nil, "changed size misses")
+            await a.setHash(id: "p", mtime: 1, token: 100, sha256: "abc")
+            check(await a.get(id: "p", mtime: 2, token: 100) == nil, "changed mtime misses")
+            check(await a.get(id: "p", mtime: 1, token: 999) == nil, "changed size misses")
         }
 
         // Superseded records get compacted away at load, not during a scan.
@@ -157,7 +157,7 @@ struct CacheSelfTest {
             let log = dir.appendingPathComponent("cache.log")
             let a = CacheStore(directory: dir)
             for _ in 0..<50 {
-                await a.setHash(id: "same", mtime: 1, pixelCount: 100, sha256: "abc")
+                await a.setHash(id: "same", mtime: 1, token: 100, sha256: "abc")
             }
             await a.flushNow()
             let fat = try! Data(contentsOf: log).count
@@ -170,33 +170,34 @@ struct CacheSelfTest {
             check(await entry(c, "same")?.sha256 == "abc", "compaction preserves the live entry")
         }
 
-        // Existing users must not lose their cache to the format change.
-        do {
+        // Existing users must not lose their cache to the format change. Both
+        // pre-merge apps wrote this plist, and each named the change token
+        // differently — iOS `pixelCount`, macOS `size`. Written as raw plist
+        // dictionaries because the type that produced them no longer exists.
+        for (app, tokenKey) in [("iOS", "pixelCount"), ("macOS", "size")] {
             let dir = tempDir()
-            let legacy = [
-                "old-1": CacheEntry(mtime: 1, pixelCount: 100, sha256: "xyz", featurePrintData: nil)
-            ]
-            let encoder = PropertyListEncoder()
-            encoder.outputFormat = .binary
-            try! encoder.encode(legacy).write(to: dir.appendingPathComponent("cache.plist"))
+            let legacy = ["old-1": ["mtime": 1.0, tokenKey: 100, "sha256": "xyz"] as [String: Any]]
+            let data = try! PropertyListSerialization.data(
+                fromPropertyList: legacy, format: .binary, options: 0)
+            try! data.write(to: dir.appendingPathComponent("cache.plist"))
 
             let a = CacheStore(directory: dir)
-            check(await entry(a, "old-1")?.sha256 == "xyz", "legacy plist is adopted")
+            check(await entry(a, "old-1")?.sha256 == "xyz", "\(app) legacy plist is adopted")
             check(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("cache.plist").path),
-                  "legacy plist is removed after adoption")
+                  "\(app) legacy plist is removed after adoption")
 
             let b = CacheStore(directory: dir)
-            check(await entry(b, "old-1")?.sha256 == "xyz", "adopted entries persist in the log")
+            check(await entry(b, "old-1")?.sha256 == "xyz", "\(app) adopted entries persist in the log")
         }
 
         // clear() must not leave the store unwritable.
         do {
             let dir = tempDir()
             let a = CacheStore(directory: dir)
-            await a.setHash(id: "p", mtime: 1, pixelCount: 100, sha256: "abc")
+            await a.setHash(id: "p", mtime: 1, token: 100, sha256: "abc")
             await a.clear()
             check(await a.entryCount() == 0, "clear empties the store")
-            await a.setHash(id: "q", mtime: 1, pixelCount: 100, sha256: "def")
+            await a.setHash(id: "q", mtime: 1, token: 100, sha256: "def")
             await a.flushNow()
 
             let b = CacheStore(directory: dir)

@@ -1,34 +1,11 @@
 import Foundation
 import Photos
-import UIKit
 import CryptoKit
-
-// A lightweight, Sendable snapshot of a photo in the library. We deliberately do
-// not carry the PHAsset across task boundaries (it isn't Sendable); instead we
-// keep the stable `id` (localIdentifier) and re-fetch the PHAsset inside whatever
-// task needs it. `pixelCount` is the cheap collision key for identical-detection
-// (true byte-duplicates always share dimensions) and doubles as a cache token.
-nonisolated struct PhotoAsset: Identifiable, Hashable, Sendable {
-    let id: String          // PHAsset.localIdentifier
-    let pixelWidth: Int
-    let pixelHeight: Int
-    let mtime: Double        // modificationDate (or creationDate) as epoch seconds
-    let creationDate: Double
-    let filename: String
-    let byteSize: Int64      // on-disk size of the primary image resource (0 if unknown)
-    var pixelCount: Int64 { Int64(pixelWidth) * Int64(pixelHeight) }
-}
-
-nonisolated enum MatchMode {
-    case identical
-    case similar
-}
-
-nonisolated struct DuplicateGroup: Identifiable {
-    let id: String
-    var assets: [PhotoAsset]
-    var mode: MatchMode
-}
+#if os(iOS)
+import UIKit
+#else
+import AppKit
+#endif
 
 // A named album the user can optionally scope a scan to. The default scan covers
 // the entire library; picking an album just narrows the fetch.
@@ -37,6 +14,19 @@ nonisolated struct AlbumOption: Identifiable, Hashable, Sendable {
     let title: String
     let count: Int
 }
+
+// The one place the two platforms' image types differ. Everything downstream
+// takes a PlatformImage and hands it to SwiftUI's Image(platform:).
+#if os(iOS)
+typealias PlatformImage = UIImage
+#else
+typealias PlatformImage = NSImage
+
+extension NSImage {
+    /// UIKit's spelling, so callers don't need their own `#if` to reach the bitmap.
+    nonisolated var cgImage: CGImage? { cgImage(forProposedRect: nil, context: nil, hints: nil) }
+}
+#endif
 
 enum PhotoLibrary {
 
@@ -59,7 +49,7 @@ enum PhotoLibrary {
     nonisolated static func fetchImageAssets(
         inAlbum albumID: String?,
         progress: @escaping @Sendable (Double) -> Void = { _ in }
-    ) -> [PhotoAsset] {
+    ) -> [ScanItem] {
         let options = PHFetchOptions()
         options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
@@ -73,7 +63,7 @@ enum PhotoLibrary {
             result = PHAsset.fetchAssets(with: options)
         }
 
-        var assets: [PhotoAsset] = []
+        var assets: [ScanItem] = []
         let total = result.count
         assets.reserveCapacity(total)
         let step = max(1, total / 100)   // report at most ~100 progress ticks
@@ -84,14 +74,18 @@ enum PhotoLibrary {
             let resources = PHAssetResource.assetResources(for: asset)
             let name = resources.first?.originalFilename ?? asset.localIdentifier
             let byteSize = fileSize(of: resources)
-            assets.append(PhotoAsset(
+            assets.append(ScanItem(
                 id: asset.localIdentifier,
-                pixelWidth: asset.pixelWidth,
-                pixelHeight: asset.pixelHeight,
+                source: .asset(asset.localIdentifier),
+                name: name,
                 mtime: mtime,
                 creationDate: ctime,
-                filename: name,
-                byteSize: byteSize
+                byteSize: byteSize,
+                pixelWidth: asset.pixelWidth,
+                pixelHeight: asset.pixelHeight,
+                // Pixel count, not byte size: iCloud-only originals often report
+                // no local size, and byte-identical photos always share dimensions.
+                token: Int64(asset.pixelWidth) * Int64(asset.pixelHeight)
             ))
             if index % step == 0 || index == total - 1 {
                 progress(total > 0 ? Double(index + 1) / Double(total) : 1)
@@ -173,7 +167,7 @@ enum PhotoLibrary {
     nonisolated static func cgImage(forAssetID id: String, maxPixel: CGFloat) async -> CGImage? {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject
         else { return nil }
-        let image = await requestUIImage(
+        let image = await requestPlatformImage(
             for: asset,
             targetSize: CGSize(width: maxPixel, height: maxPixel),
             contentMode: .aspectFit,
@@ -189,7 +183,7 @@ enum PhotoLibrary {
     /// means the user sees a blurry placeholder immediately instead of a spinner —
     /// or, worse, the previously shown photo — while the real one loads. Allows
     /// iCloud so the full photo can be shown even if the original isn't local.
-    nonisolated static func previewImages(forAssetID id: String, maxPixel: CGFloat) -> AsyncStream<UIImage> {
+    nonisolated static func previewImages(forAssetID id: String, maxPixel: CGFloat) -> AsyncStream<PlatformImage> {
         AsyncStream { continuation in
             guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject
             else { continuation.finish(); return }
@@ -224,11 +218,11 @@ enum PhotoLibrary {
     }
 
     /// A square thumbnail for the results list. Allows iCloud so previews still show.
-    nonisolated static func thumbnail(forAssetID id: String, pointSize: CGFloat, scale: CGFloat) async -> UIImage? {
+    nonisolated static func thumbnail(forAssetID id: String, pointSize: CGFloat, scale: CGFloat) async -> PlatformImage? {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject
         else { return nil }
         let px = pointSize * scale
-        return await requestUIImage(
+        return await requestPlatformImage(
             for: asset,
             targetSize: CGSize(width: px, height: px),
             contentMode: .aspectFill,
@@ -237,13 +231,13 @@ enum PhotoLibrary {
         )
     }
 
-    nonisolated private static func requestUIImage(
+    nonisolated private static func requestPlatformImage(
         for asset: PHAsset,
         targetSize: CGSize,
         contentMode: PHImageContentMode,
         allowNetwork: Bool,
         deliveryMode: PHImageRequestOptionsDeliveryMode
-    ) async -> UIImage? {
+    ) async -> PlatformImage? {
         let options = PHImageRequestOptions()
         options.isNetworkAccessAllowed = allowNetwork
         options.deliveryMode = deliveryMode

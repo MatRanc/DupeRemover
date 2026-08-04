@@ -1,10 +1,36 @@
 import SwiftUI
 import Photos
+#if os(macOS)
+import AppKit
+#endif
 
-// MARK: - Asset row
+// MARK: - Platform glue
 
-struct AssetRow: View {
-    let asset: PhotoAsset
+extension Image {
+    init(platform image: PlatformImage) {
+        #if os(iOS)
+        self.init(uiImage: image)
+        #else
+        self.init(nsImage: image)
+        #endif
+    }
+}
+
+extension View {
+    /// `.navigationBarTitleDisplayMode` is iOS-only; macOS has no equivalent.
+    @ViewBuilder func inlineNavigationTitle() -> some View {
+        #if os(iOS)
+        self.navigationBarTitleDisplayMode(.inline)
+        #else
+        self
+        #endif
+    }
+}
+
+// MARK: - Item row
+
+struct ItemRow: View {
+    let item: ScanItem
     let isSelected: Bool
     let onToggle: () -> Void
 
@@ -14,25 +40,45 @@ struct AssetRow: View {
                 .font(.title3)
                 .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
 
-            AssetThumbnail(assetID: asset.id, pointSize: 56)
+            ItemThumbnail(item: item, pointSize: 56)
                 .frame(width: 56, height: 56)
-                .background(Color(.tertiarySystemFill))
+                .background(Color.secondary.opacity(0.15))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(asset.filename)
+                Text(item.name)
                     .font(.body)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text(Self.subtitle(for: asset))
+                Text(Self.subtitle(for: item))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
 
             Spacer()
+
+            #if os(macOS)
+            if item.byteSize > 0 {
+                Text(formatBytes(item.byteSize))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            if let url = item.localURL {
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                }
+                .buttonStyle(.borderless)
+                .help("Reveal in Finder")
+            }
+            #endif
         }
         .contentShape(Rectangle())
         .onTapGesture { onToggle() }
+        #if os(iOS)
         .contextMenu {
             Button {
                 onToggle()
@@ -41,8 +87,9 @@ struct AssetRow: View {
                       systemImage: isSelected ? "circle" : "checkmark.circle")
             }
         } preview: {
-            AssetPreview(asset: asset)
+            ItemPreview(item: item)
         }
+        #endif
     }
 
     private static let formatter: DateFormatter = {
@@ -59,14 +106,22 @@ struct AssetRow: View {
         return f
     }()
 
-    /// "4032×3024 · 2.4 MB · Jun 5, 2026 at 12:03". File size is omitted when
-    /// unknown (e.g. iCloud-only originals report no local size).
-    private static func subtitle(for asset: PhotoAsset) -> String {
-        var parts = ["\(asset.pixelWidth)×\(asset.pixelHeight)"]
-        if asset.byteSize > 0 {
-            parts.append(byteFormatter.string(fromByteCount: asset.byteSize))
+    /// "4032×3024 · 2.4 MB · Jun 5, 2026 at 12:03" for a library photo; the
+    /// containing folder for a file, which is what tells two copies apart.
+    /// Unknown parts are left out — iCloud-only originals report no size, and
+    /// files are never decoded just to learn their dimensions.
+    private static func subtitle(for item: ScanItem) -> String {
+        if let url = item.localURL {
+            return url.deletingLastPathComponent().path
         }
-        parts.append(dateText(asset.creationDate))
+        var parts: [String] = []
+        if item.pixelWidth > 0, item.pixelHeight > 0 {
+            parts.append("\(item.pixelWidth)×\(item.pixelHeight)")
+        }
+        if item.byteSize > 0 {
+            parts.append(byteFormatter.string(fromByteCount: item.byteSize))
+        }
+        parts.append(dateText(item.creationDate))
         return parts.joined(separator: " · ")
     }
 
@@ -78,16 +133,26 @@ struct AssetRow: View {
 
 // MARK: - Thumbnail
 
-struct AssetThumbnail: View {
-    let assetID: String
+struct ItemThumbnail: View {
+    let item: ScanItem
     let pointSize: CGFloat
-    @State private var image: UIImage?
+    @State private var image: PlatformImage?
+    #if os(iOS)
     @Environment(\.displayScale) private var displayScale
+    #endif
+
+    private var scale: CGFloat {
+        #if os(iOS)
+        displayScale
+        #else
+        NSScreen.main?.backingScaleFactor ?? 2
+        #endif
+    }
 
     var body: some View {
         Group {
             if let image {
-                Image(uiImage: image)
+                Image(platform: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             } else {
@@ -96,28 +161,31 @@ struct AssetThumbnail: View {
             }
         }
         .clipped()
-        .task(id: assetID) {
-            image = await PhotoLibrary.thumbnail(
-                forAssetID: assetID,
-                pointSize: pointSize,
-                scale: displayScale
-            )
+        .task(id: item.id) {
+            switch item.source {
+            case .file(let url):
+                image = await FileSource.thumbnail(at: url, pointSize: pointSize, scale: scale)
+            case .asset(let id):
+                image = await PhotoLibrary.thumbnail(forAssetID: id, pointSize: pointSize, scale: scale)
+            }
         }
     }
 }
 
 // MARK: - Large preview (long-press / Haptic Touch)
 
-struct AssetPreview: View {
-    let asset: PhotoAsset
-    @State private var image: UIImage?
+#if os(iOS)
+struct ItemPreview: View {
+    let item: ScanItem
+    @State private var image: PlatformImage?
 
     // Cap the longest edge; height/width follow the photo's real aspect ratio so
-    // the preview isn't letterboxed.
+    // the preview isn't letterboxed. Files report no dimensions, so they land on
+    // the square fallback.
     private var previewSize: CGSize {
         let maxDim: CGFloat = 320
-        let w = CGFloat(max(asset.pixelWidth, 1))
-        let h = CGFloat(max(asset.pixelHeight, 1))
+        let w = CGFloat(max(item.pixelWidth, 1))
+        let h = CGFloat(max(item.pixelHeight, 1))
         return w >= h
             ? CGSize(width: maxDim, height: maxDim * h / w)
             : CGSize(width: maxDim * w / h, height: maxDim)
@@ -126,7 +194,7 @@ struct AssetPreview: View {
     var body: some View {
         Group {
             if let image {
-                Image(uiImage: image)
+                Image(platform: image)
                     .resizable()
                     .scaledToFit()
             } else {
@@ -135,22 +203,36 @@ struct AssetPreview: View {
             }
         }
         .frame(width: previewSize.width, height: previewSize.height)
-        .task(id: asset.id) {
-            // Drop any image from a previously shown asset so we never display the
+        .task(id: item.id) {
+            // Drop any image from a previously shown item so we never display the
             // wrong photo; the low-res delivery fills in almost immediately.
             image = nil
-            for await stage in PhotoLibrary.previewImages(forAssetID: asset.id, maxPixel: 1200) {
-                image = stage
+            switch item.source {
+            case .asset(let id):
+                for await stage in PhotoLibrary.previewImages(forAssetID: id, maxPixel: 1200) {
+                    image = stage
+                }
+            case .file(let url):
+                image = await FileSource.thumbnail(at: url, pointSize: 320, scale: 2)
             }
         }
     }
 }
+#endif
 
 // MARK: - Permission gate
 
 struct PermissionView: View {
     let status: PHAuthorizationStatus
     let onRequest: () -> Void
+
+    private static let settingsHint: String = {
+        #if os(iOS)
+        "Photo access is off. Enable it in Settings to scan your library."
+        #else
+        "Photo access is off. Enable it in System Settings to scan your library."
+        #endif
+    }()
 
     var body: some View {
         VStack(spacing: 16) {
@@ -168,13 +250,9 @@ struct PermissionView: View {
                 .padding(.horizontal, 32)
 
             if status == .denied || status == .restricted {
-                Button("Open Settings") {
-                    if let url = URL(string: UIApplication.openSettingsURLString) {
-                        UIApplication.shared.open(url)
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                Text("Photo access is off. Enable it in Settings to scan your library.")
+                Button("Open Settings", action: openSettings)
+                    .buttonStyle(.borderedProminent)
+                Text(Self.settingsHint)
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
@@ -186,6 +264,17 @@ struct PermissionView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
+    }
+
+    private func openSettings() {
+        #if os(iOS)
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+        #else
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Photos")
+        else { return }
+        NSWorkspace.shared.open(url)
+        #endif
     }
 }
 
@@ -216,13 +305,16 @@ struct AlbumPickerSheet: View {
                 }
             }
             .navigationTitle("Scan scope")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
             }
         }
+        #if os(macOS)
+        .frame(minWidth: 320, minHeight: 420)
+        #endif
     }
 
     private func row(title: String, count: Int?, isSelected: Bool, action: @escaping () -> Void) -> some View {
@@ -237,21 +329,22 @@ struct AlbumPickerSheet: View {
                     Image(systemName: "checkmark").foregroundStyle(.tint)
                 }
             }
+            .contentShape(Rectangle())
         }
+        #if os(macOS)
+        .buttonStyle(.plain)
+        #endif
     }
 }
 
 // MARK: - About
 
-struct AboutSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
+struct AboutContent: View {
+    /// One App Store record serves both platforms (universal purchase).
+    static let appStoreID = "6770612666"
+    static let feedbackEmail = "matranc03+duperemover@gmail.com"
 
-    /// App Store numeric ID, used to deep-link to the review page.
-    // TODO: replace with the real App Store ID once the app is live.
-    private static let appStoreID = "0000000000"
-    /// Address feedback is sent to.
-    private static let feedbackEmail = "matranc03+duperemover@gmail.com"
+    @Environment(\.openURL) private var openURL
 
     private var version: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
@@ -261,135 +354,147 @@ struct AboutSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    if let icon = UIImage(named: "AboutIcon") {
-                        Image(uiImage: icon)
-                            .resizable()
-                            .interpolation(.high)
-                            .frame(width: 96, height: 96)
-                            .clipShape(RoundedRectangle(cornerRadius: 21, style: .continuous))
-                            .shadow(radius: 4, y: 2)
-                    } else {
-                        Image(systemName: "photo.on.rectangle.angled")
-                            .font(.system(size: 64))
-                            .foregroundStyle(.tint)
-                    }
+        VStack(spacing: 16) {
+            icon
 
-                    VStack(spacing: 4) {
-                        Text("Dupe Remover")
-                            .font(.title2).fontWeight(.semibold)
-                        Text("Version \(version) (\(build))")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-
-                    Text("Finds duplicate and visually similar photos in your library and lets you move the extras to Recently Deleted. Everything runs on your device — nothing is uploaded.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
-
-                    Text("Made in 🇨🇦 with ❤️")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-
-                    VStack(spacing: 12) {
-                        Button(action: rateApp) {
-                            Label("Rate App", systemImage: "star")
-                        }
-                        Button(action: sendFeedback) {
-                            Label("Send Feedback", systemImage: "envelope")
-                        }
-                    }
+            VStack(spacing: 4) {
+                Text("Dupe Remover")
+                    .font(.title2).fontWeight(.semibold)
+                Text("Version \(version) (\(build))")
                     .font(.callout)
-                    .padding(.top, 4)
-
-                    VStack(spacing: 12) {
-                        Link(destination: URL(string: "https://github.com/MatRanc/DupeRemoveriOS")!) {
-                            Label("Source code", systemImage: "chevron.left.forwardslash.chevron.right")
-                        }
-                        Link(destination: URL(string: "https://github.com/MatRanc/DupeRemoveriOS/blob/main/PRIVACY.md")!) {
-                            Label("Privacy policy", systemImage: "hand.raised")
-                        }
-                        Link(destination: URL(string: "https://www.flaticon.com/free-icon/duplicate_3991529")!) {
-                            Label("App icon by Flaticon", systemImage: "app.gift")
-                        }
-                    }
-                    .font(.callout)
-                    .padding(.top, 4)
-
-                    Text("© 2026 Mathieu Rancourt · MIT License")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .padding(.top, 8)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 24)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
             }
-            .navigationTitle("About")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
+
+            Text("Finds duplicate and visually similar photos in your library or in any folder you point it at, and moves the extras somewhere recoverable. Everything runs on your device — nothing is uploaded.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+
+            Text("Made in 🇨🇦 with ❤️")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 12) {
+                Button(action: rateApp) {
+                    Label("Rate App", systemImage: "star")
+                }
+                Button(action: sendFeedback) {
+                    Label("Send Feedback", systemImage: "envelope")
                 }
             }
+            .font(.callout)
+            .padding(.top, 4)
+
+            VStack(spacing: 12) {
+                Link(destination: URL(string: "https://github.com/MatRanc/DupeRemover")!) {
+                    Label("Source code", systemImage: "chevron.left.forwardslash.chevron.right")
+                }
+                Link(destination: URL(string: "https://matranc.github.io/DupeRemover/")!) {
+                    Label("Privacy policy", systemImage: "hand.raised")
+                }
+                Link(destination: URL(string: "https://www.flaticon.com/free-icon/duplicate_3991529")!) {
+                    Label("App icon by Flaticon", systemImage: "app.gift")
+                }
+            }
+            .font(.callout)
+            .padding(.top, 4)
+
+            Text("© 2026 Mathieu Rancourt · MIT License")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .padding(.top, 8)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+    }
+
+    @ViewBuilder
+    private var icon: some View {
+        #if os(iOS)
+        if let icon = UIImage(named: "AboutIcon") {
+            Image(platform: icon)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 96, height: 96)
+                .clipShape(RoundedRectangle(cornerRadius: 21, style: .continuous))
+                .shadow(radius: 4, y: 2)
+        } else {
+            Image(systemName: "photo.on.rectangle.angled")
+                .font(.system(size: 64))
+                .foregroundStyle(.tint)
+        }
+        #else
+        Image(platform: NSApp.applicationIconImage)
+            .resizable()
+            .frame(width: 96, height: 96)
+        #endif
     }
 
     private func rateApp() {
-        let urlString = "itms-apps://apps.apple.com/app/id\(Self.appStoreID)?action=write-review"
-        if let url = URL(string: urlString) { openURL(url) }
+        #if os(iOS)
+        let scheme = "itms-apps"
+        #else
+        let scheme = "macappstore"
+        #endif
+        if let url = URL(string: "\(scheme)://apps.apple.com/app/id\(Self.appStoreID)?action=write-review") {
+            openURL(url)
+        }
     }
 
     private func sendFeedback() {
         let subject = "Dupe Remover Feedback"
-        let encodedSubject = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? subject
-        if let url = URL(string: "mailto:\(Self.feedbackEmail)?subject=\(encodedSubject)") {
+        let encoded = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? subject
+        if let url = URL(string: "mailto:\(Self.feedbackEmail)?subject=\(encoded)") {
             openURL(url)
         }
     }
 }
 
-// MARK: - Match info
-
-struct MatchInfoSheet: View {
+#if os(iOS)
+struct AboutSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    section(
-                        "Identical",
-                        "Compares photos byte-for-byte. Catches exact duplicates: the same photo saved twice or imported more than once. Fast and 100% reliable, but won't catch a photo that's been re-saved, resized, or edited — even one changed pixel makes it a different file."
-                    )
-                    section(
-                        "Also match similar photos",
-                        "Uses Apple's on-device Vision framework to compare what photos look like, not how they're stored. Catches re-exported JPEGs, light edits, the same shot at different resolutions, or screenshots of the same image. Slower the first time because each photo is analyzed once — results are cached so repeat scans are fast."
-                    )
-                    section(
-                        "Strictness slider",
-                        "Controls how visually close two photos must be before they're grouped. Lower = stricter (only photos that look almost identical). Higher = looser (catches more edited/cropped variants but risks false matches). 20% works well for most libraries."
-                    )
-
-                    Text("Both modes run entirely on your device. Nothing is uploaded.")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .padding(.top, 4)
+            ScrollView { AboutContent() }
+                .navigationTitle("About")
+                .inlineNavigationTitle()
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                    }
                 }
-                .padding()
-            }
-            .navigationTitle("How matching works")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
-                }
-            }
         }
+    }
+}
+#endif
+
+// MARK: - Match info
+
+struct MatchInfoContent: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            section(
+                "Identical",
+                "Compares photos byte-for-byte. Catches exact duplicates: the same photo saved twice, imported more than once, or copied between folders. Fast and 100% reliable, but won't catch a photo that's been re-saved, resized, or edited — even one changed pixel makes it a different file."
+            )
+            section(
+                "Also match similar photos",
+                "Uses Apple's on-device Vision framework to compare what photos look like, not how they're stored. Catches re-exported JPEGs, light edits, the same shot at different resolutions, or screenshots of the same image. Slower the first time because each photo is analyzed once — results are cached so repeat scans are fast."
+            )
+            section(
+                "Strictness slider",
+                "Controls how visually close two photos must be before they're grouped. Lower = stricter (only photos that look almost identical). Higher = looser (catches more edited/cropped variants but risks false matches). 20% works well for most libraries."
+            )
+
+            Text("Both modes run entirely on your device. Nothing is uploaded.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .padding(.top, 4)
+        }
+        .padding()
     }
 
     private func section(_ title: String, _ body: String) -> some View {
@@ -399,3 +504,22 @@ struct MatchInfoSheet: View {
         }
     }
 }
+
+#if os(iOS)
+struct MatchInfoSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView { MatchInfoContent() }
+                .navigationTitle("How matching works")
+                .inlineNavigationTitle()
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                    }
+                }
+        }
+    }
+}
+#endif

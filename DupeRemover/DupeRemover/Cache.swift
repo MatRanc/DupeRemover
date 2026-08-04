@@ -1,19 +1,25 @@
 import Foundation
 import Vision
 
-// One cache record per photo, keyed by the asset's stable localIdentifier.
-// `mtime` and `pixelCount` together act as a change token: if the photo is
-// edited (modification date moves) or replaced, the cached hash / feature print
-// is treated as stale and recomputed.
+// One cache record per item, keyed by its stable id (a Photos localIdentifier or
+// a file path). `mtime` and `token` together act as a change token: if the image
+// is edited (modification date moves) or replaced, the cached hash / feature
+// print is treated as stale and recomputed.
 nonisolated struct CacheEntry: Codable, Sendable {
     var mtime: Double
-    var pixelCount: Int64
-    var sha256: String?
-    var featurePrintData: Data?
+    // Pixel count for Photos assets — iCloud-only originals often report no byte
+    // size — and byte size for files, which are never decoded just to measure.
+    var token: Int64
+    var sha256: String? = nil
+    var featurePrintData: Data? = nil
     // Which Vision revision produced `featurePrintData`. nil for entries written
-    // before this was tracked. Not part of the mtime/pixelCount staleness check —
+    // before this was tracked. Not part of the mtime/token staleness check —
     // a revision bump must not throw away perfectly good SHA-256 hashes.
-    var featurePrintRevision: Int?
+    var featurePrintRevision: Int? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case mtime, token, sha256, featurePrintData, featurePrintRevision
+    }
 
     /// The stored print, but only when it is comparable with `revision`. Vision's
     /// feature-print format is versioned and `computeDistance` throws across
@@ -25,6 +31,27 @@ nonisolated struct CacheEntry: Codable, Sendable {
     func featurePrint(revision: Int) -> Data? {
         guard featurePrintRevision == revision else { return nil }
         return featurePrintData
+    }
+}
+
+extension CacheEntry {
+    /// `token` was `pixelCount` in the iOS app and `size` in the macOS one; both
+    /// meant this field.
+    private enum LegacyKeys: String, CodingKey { case pixelCount, size }
+
+    /// Hand-written so a cache written by either pre-merge app still decodes.
+    /// Without the aliases every existing user silently re-hashes and
+    /// re-fingerprints their whole library on first launch after upgrading.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let legacy = try decoder.container(keyedBy: LegacyKeys.self)
+        mtime = try c.decode(Double.self, forKey: .mtime)
+        token = try c.decodeIfPresent(Int64.self, forKey: .token)
+            ?? legacy.decodeIfPresent(Int64.self, forKey: .pixelCount)
+            ?? legacy.decode(Int64.self, forKey: .size)
+        sha256 = try c.decodeIfPresent(String.self, forKey: .sha256)
+        featurePrintData = try c.decodeIfPresent(Data.self, forKey: .featurePrintData)
+        featurePrintRevision = try c.decodeIfPresent(Int.self, forKey: .featurePrintRevision)
     }
 }
 
@@ -79,10 +106,10 @@ actor CacheStore {
 
     // MARK: Reads
 
-    func get(id: String, mtime: Double, pixelCount: Int64) -> CacheEntry? {
+    func get(id: String, mtime: Double, token: Int64) -> CacheEntry? {
         guard let e = entries[id],
               abs(e.mtime - mtime) < 0.001,
-              e.pixelCount == pixelCount else { return nil }
+              e.token == token else { return nil }
         return e
     }
 
@@ -95,26 +122,26 @@ actor CacheStore {
 
     // MARK: Writes
 
-    func setHash(id: String, mtime: Double, pixelCount: Int64, sha256: String) {
-        var e = freshEntryIfStale(id: id, mtime: mtime, pixelCount: pixelCount)
+    func setHash(id: String, mtime: Double, token: Int64, sha256: String) {
+        var e = freshEntryIfStale(id: id, mtime: mtime, token: token)
         e.sha256 = sha256
         entries[id] = e
         append(id: id, entry: e)
     }
 
-    func setFeaturePrint(id: String, mtime: Double, pixelCount: Int64, data: Data, revision: Int) {
-        var e = freshEntryIfStale(id: id, mtime: mtime, pixelCount: pixelCount)
+    func setFeaturePrint(id: String, mtime: Double, token: Int64, data: Data, revision: Int) {
+        var e = freshEntryIfStale(id: id, mtime: mtime, token: token)
         e.featurePrintData = data
         e.featurePrintRevision = revision
         entries[id] = e
         append(id: id, entry: e)
     }
 
-    private func freshEntryIfStale(id: String, mtime: Double, pixelCount: Int64) -> CacheEntry {
-        if let e = entries[id], abs(e.mtime - mtime) < 0.001, e.pixelCount == pixelCount {
+    private func freshEntryIfStale(id: String, mtime: Double, token: Int64) -> CacheEntry {
+        if let e = entries[id], abs(e.mtime - mtime) < 0.001, e.token == token {
             return e
         }
-        return CacheEntry(mtime: mtime, pixelCount: pixelCount, sha256: nil, featurePrintData: nil)
+        return CacheEntry(mtime: mtime, token: token, sha256: nil, featurePrintData: nil)
     }
 
     private func append(id: String, entry: CacheEntry) {
