@@ -27,21 +27,26 @@ One app, one codebase, both platforms. Everything runs locally on your device. N
 2. Select the `DupeRemover` scheme and either a Mac destination or an iOS device/simulator — the one target builds for both.
 3. Press `⌘R` to build and run.
 
-### Self-checks
+### Tests
 
-The cache and the folder scanner each have a standalone check you can run
-without Xcode (both are macOS-only, and neither needs a test target):
+47 tests run against generated dummy photos — no fixtures to check in, and the
+same suite runs on both platforms:
 
 ```sh
-swiftc -parse-as-library DupeRemover/DupeRemover/Cache.swift \
-    Tools/CacheSelfTest.swift -o /tmp/cachecheck && /tmp/cachecheck
-
-swiftc -parse-as-library DupeRemover/DupeRemover/Cache.swift \
-    DupeRemover/DupeRemover/ScanItem.swift \
-    DupeRemover/DupeRemover/PhotoLibrary.swift \
-    DupeRemover/DupeRemover/FileSource.swift \
-    Tools/FileSourceSelfTest.swift -o /tmp/filecheck && /tmp/filecheck
+xcodebuild test -project DupeRemover/DupeRemover.xcodeproj -scheme DupeRemover \
+    -destination 'platform=macOS'
+xcodebuild test -project DupeRemover/DupeRemover.xcodeproj -scheme DupeRemover \
+    -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
 ```
+
+They cover the cache (round trips, a kill mid-write, compaction, migration from
+either older app's cache), the folder source (enumeration, hashing, downscaling),
+and full scans through the view model: identical grouping, similar grouping and
+the strictness slider, cache reuse and invalidation, selection, and deletion.
+
+The similar-photo tests need a real feature print, which the iOS Simulator
+cannot produce — those tests skip themselves there and run on macOS or a real
+device.
 
 ## Screenshots
 

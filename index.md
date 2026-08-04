@@ -14,14 +14,16 @@ Dupe Remover does not collect, transmit, store, share, or sell any personal info
 
 ## Network access
 
-Dupe Remover never connects to the internet. It contains no networking code and no third-party SDKs, on either platform.
+Dupe Remover makes no internet connections of its own. It contains no networking code and no third-party SDKs, on either platform.
 
 On macOS this is enforced by the system: the app ships with **no network entitlements**, so macOS prevents it from making any internet connection — incoming or outgoing — regardless of how it is used. You can verify this in the app's signed entitlements:
 
 - `com.apple.security.network.client` — not present
 - `com.apple.security.network.server` — not present
 
-On iOS the app simply makes no network requests; your photos are never sent anywhere.
+On iOS the app makes no network requests of its own; your photos are never sent anywhere.
+
+One clarification, because it is the only place anything leaves the device's control: if a photo in your iCloud library is not stored locally, asking the system Photos framework for its thumbnail or preview can make **the system** download that photo from your own iCloud account, exactly as the Photos app would. That is Apple's software fetching your own photo for display, not Dupe Remover uploading anything. The parts that do the actual work — hashing and visual fingerprinting — are restricted to locally stored photos and never trigger a download.
 
 ## Photos the app reads
 

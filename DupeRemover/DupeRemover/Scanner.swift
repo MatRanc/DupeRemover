@@ -24,6 +24,31 @@ nonisolated func computeFeaturePrint(from cgImage: CGImage) -> VNFeaturePrintObs
     return request.results?.first
 }
 
+/// A queue of our own for Vision work, deliberately outside Swift's cooperative
+/// thread pool.
+///
+/// `perform` blocks its caller while Vision waits on an internal dispatch group.
+/// Called straight from an `async` task, that parks a cooperative thread — and
+/// the pool has only one thread per core and never grows to compensate. With
+/// four analyses in flight on a four-core Mac, every cooperative thread ends up
+/// parked inside Vision, the work Vision is waiting for can never be scheduled,
+/// and the analyze phase stops dead with no error and no crash. The test suite
+/// reproduced exactly that. Hopping to this queue keeps the blocking wait off
+/// the pool, so the cores stay available.
+private let visionQueue = DispatchQueue(
+    label: "com.matranc.duperemover.vision",
+    qos: .userInitiated,
+    attributes: .concurrent
+)
+
+nonisolated func computeFeaturePrintOffPool(from cgImage: CGImage) async -> VNFeaturePrintObservation? {
+    await withCheckedContinuation { continuation in
+        visionQueue.async {
+            continuation.resume(returning: computeFeaturePrint(from: cgImage))
+        }
+    }
+}
+
 nonisolated func archiveFeaturePrint(_ observation: VNFeaturePrintObservation) -> Data? {
     try? NSKeyedArchiver.archivedData(withRootObject: observation, requiringSecureCoding: true)
 }
@@ -200,7 +225,7 @@ final class ScanViewModel: ObservableObject {
 
     @Published var authStatus = PhotoLibrary.authorizationStatus
 
-    private let cache = CacheStore()
+    let cache: CacheStore
 
     /// Folders whose security-scoped access we currently hold. Claimed when the
     /// user picks them and held until the next pick, because thumbnails and
@@ -209,7 +234,10 @@ final class ScanViewModel: ObservableObject {
     // has always behaved. Persist bookmarks if that ever grates.
     private var scopedFolders: [URL] = []
 
-    init() {
+    /// `cacheDirectory` exists so tests can drive a real scan against a throwaway
+    /// cache instead of the one the user's app is using.
+    init(cacheDirectory: URL? = nil) {
+        cache = CacheStore(directory: cacheDirectory)
         Task { await refreshCacheStats() }
     }
 
@@ -459,7 +487,7 @@ final class ScanViewModel: ObservableObject {
                 // request contention without speeding up inference.
                 await withTaskGroupLimited(items: missing, maxConcurrent: 4) { i -> (Int, ArchivedPrint?) in
                     guard let cg = await visionImage(for: allAssets[i]),
-                          let obs = computeFeaturePrint(from: cg),
+                          let obs = await computeFeaturePrintOffPool(from: cg),
                           let data = archiveFeaturePrint(obs) else { return (i, nil) }
                     return (i, ArchivedPrint(data: data, revision: obs.requestRevision))
                 } onResult: { result in
@@ -684,10 +712,18 @@ final class ScanViewModel: ObservableObject {
                 : nil
         }
         selected = []
-        statusText = trashed.isEmpty
-            ? "Nothing deleted."
-            : "Deleted \(trashed.count) — recoverable from the Trash or Recently Deleted."
-                + (failed > 0 ? " \(failed) failed." : "")
+        if !trashed.isEmpty {
+            statusText = "Deleted \(trashed.count) — recoverable from the Trash or Recently Deleted."
+                + (failed > 0 ? " \(failed) could not be deleted." : "")
+        } else if failed > 0 {
+            // Not every location supports a Trash — a file the picker handed us
+            // from a read-only or provider-backed folder can refuse the move. Say
+            // so, rather than leaving the user staring at "nothing happened".
+            statusText = "Couldn't delete \(failed) item\(failed == 1 ? "" : "s"). "
+                + "They may be somewhere the system won't let the app move files from."
+        } else {
+            statusText = "Nothing deleted."
+        }
     }
 }
 
