@@ -175,22 +175,33 @@ enum PhotoLibrary {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject
         else { return nil }
 
+        // User albums only. Smart albums would add "Recents" to every single photo.
+        // Shared albums come back in the same fetch under the cloud-shared subtype,
+        // which is the only thing that names where a shared photo came from.
+        var albums: [String] = []
+        var sharedAlbums: [String] = []
+        PHAssetCollection.fetchAssetCollectionsContaining(asset, with: .album, options: nil)
+            .enumerateObjects { collection, _, _ in
+                guard let title = collection.localizedTitle else { return }
+                if collection.assetCollectionSubtype == .albumCloudShared {
+                    sharedAlbums.append(title)
+                } else {
+                    albums.append(title)
+                }
+            }
+
         let source: String
         if asset.sourceType.contains(.typeCloudShared) {
-            source = "Shared library"
+            // No public API names the iCloud Shared Photo Library itself, so a photo
+            // that isn't in a shared album can only be reported generically.
+            // ponytail: first album wins when a photo is in several; list them all if it comes up.
+            source = sharedAlbums.first.map { "Shared album “\($0)”" } ?? "iCloud Shared Library"
         } else if asset.sourceType.contains(.typeiTunesSynced) {
             source = "Synced from a computer"
         } else {
             source = "Personal library"
         }
-
-        // User albums only. Smart albums would add "Recents" to every single photo.
-        var albums: [String] = []
-        PHAssetCollection.fetchAssetCollectionsContaining(asset, with: .album, options: nil)
-            .enumerateObjects { collection, _, _ in
-                if let title = collection.localizedTitle { albums.append(title) }
-            }
-        return AssetPlacement(source: source, albums: albums.sorted())
+        return AssetPlacement(source: source, albums: (albums + sharedAlbums).sorted())
     }
 
     // MARK: Hashing (identical detection)

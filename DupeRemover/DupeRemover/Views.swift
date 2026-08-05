@@ -249,6 +249,14 @@ struct ItemInfoSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                Section("Date") {
+                    if item.creationDate > 0 {
+                        Text(Date(timeIntervalSince1970: item.creationDate)
+                            .formatted(date: .long, time: .shortened))
+                    } else {
+                        Text("Unknown date").foregroundStyle(.secondary)
+                    }
+                }
                 if let url = item.localURL {
                     Section("Folder") {
                         Text(url.deletingLastPathComponent().path)
