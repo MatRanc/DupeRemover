@@ -13,6 +13,7 @@ nonisolated struct AlbumOption: Identifiable, Hashable, Sendable {
     let id: String          // PHAssetCollection.localIdentifier
     let title: String
     let count: Int
+    let isShared: Bool      // an iCloud shared album, i.e. not only your photos
 }
 
 /// Where a library photo actually lives, for the row's Info action.
@@ -157,7 +158,12 @@ enum PhotoLibrary {
                 opts.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
                 let count = PHAsset.fetchAssets(in: collection, options: opts).count
                 guard count > 0, let title = collection.localizedTitle else { return }
-                out.append(AlbumOption(id: collection.localIdentifier, title: title, count: count))
+                out.append(AlbumOption(
+                    id: collection.localIdentifier,
+                    title: title,
+                    count: count,
+                    isShared: collection.assetCollectionSubtype == .albumCloudShared
+                ))
             }
         }
 

@@ -249,6 +249,19 @@ struct ItemInfoSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                // Dimensions come free with a library asset; files are never decoded
+                // just to measure, so those rows simply don't appear.
+                if item.pixelWidth > 0 || item.byteSize > 0 {
+                    Section("Size") {
+                        if item.pixelWidth > 0, item.pixelHeight > 0 {
+                            LabeledContent("Dimensions",
+                                           value: "\(item.pixelWidth) × \(item.pixelHeight)")
+                        }
+                        if item.byteSize > 0 {
+                            LabeledContent("File size", value: formatBytes(item.byteSize))
+                        }
+                    }
+                }
                 Section("Date") {
                     dateRow("Created", item.creationDate)
                     dateRow("Modified", item.mtime)
@@ -288,7 +301,10 @@ struct ItemInfoSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium])
+        // Opens half-height; drag the grabber up for the full screen when a photo
+        // sits in more albums than the medium detent can show.
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
         .task {
             guard case .asset(let id) = item.source else { isLoading = false; return }
             placement = await Task.detached(priority: .userInitiated) {
@@ -418,12 +434,20 @@ struct AlbumPickerSheet: View {
                         }
                     }
                 } else if !albums.isEmpty {
-                    Section("Albums") {
+                    Section {
                         ForEach(albums) { album in
                             row(title: album.title, count: album.count,
+                                isShared: album.isShared,
                                 isSelected: scope == .album(album.id)) {
                                 onSelect(.album(album.id)); dismiss()
                             }
+                        }
+                    } header: {
+                        Text("Albums")
+                    } footer: {
+                        if albums.contains(where: \.isShared) {
+                            Label("Shared albums hold other people's photos too.",
+                                  systemImage: "person.2")
                         }
                     }
                 }
@@ -441,10 +465,16 @@ struct AlbumPickerSheet: View {
         #endif
     }
 
-    private func row(title: String, count: Int?, isSelected: Bool, action: @escaping () -> Void) -> some View {
+    private func row(title: String, count: Int?, isShared: Bool = false,
+                     isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack {
                 Text(title).foregroundStyle(.primary)
+                if isShared {
+                    Image(systemName: "person.2")
+                        .foregroundStyle(.secondary)
+                        .help("iCloud shared album")
+                }
                 Spacer()
                 if let count {
                     Text("\(count)").foregroundStyle(.secondary)
@@ -605,7 +635,7 @@ struct MatchInfoContent: View {
                 "Compares photos byte-for-byte. Catches exact duplicates: the same photo saved twice, imported more than once, or copied between folders. Fast and 100% reliable, but won't catch a photo that's been re-saved, resized, or edited — even one changed pixel makes it a different file."
             )
             section(
-                "Also match similar photos",
+                "Match similar photos",
                 "Uses Apple's on-device Vision framework to compare what photos look like, not how they're stored. Catches re-exported JPEGs, light edits, the same shot at different resolutions, or screenshots of the same image. Slower the first time because each photo is analyzed once — results are cached so repeat scans are fast."
             )
             section(

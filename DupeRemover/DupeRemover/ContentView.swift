@@ -5,6 +5,9 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @StateObject private var vm = ScanViewModel()
     @State private var showingMatchInfo = false
+    /// Shown once, unprompted, on the very first launch: "Match similar photos" is
+    /// the toggle that decides what a scan can find, and it's off by default.
+    @AppStorage("hasSeenMatchInfo") private var hasSeenMatchInfo = false
     @State private var showingAlbumPicker = false
     @State private var showingFolderPicker = false
     #if os(iOS)
@@ -30,6 +33,7 @@ struct ContentView: View {
                 }
         }
         .task {
+            showMatchInfoOnFirstLaunch()
             vm.refreshAuthStatus()
             if vm.hasFullOrLimitedAccess { await vm.loadAlbums() }
         }
@@ -58,6 +62,7 @@ struct ContentView: View {
         }
         .frame(minWidth: 680, minHeight: 560)
         .task {
+            showMatchInfoOnFirstLaunch()
             vm.refreshAuthStatus()
             if vm.hasFullOrLimitedAccess { await vm.loadAlbums() }
         }
@@ -93,6 +98,12 @@ struct ContentView: View {
     var similarity: Binding<Double> {
         Binding(get: { 100 - vm.tolerancePercent },
                 set: { vm.tolerancePercent = 100 - $0 })
+    }
+
+    private func showMatchInfoOnFirstLaunch() {
+        guard !hasSeenMatchInfo else { return }
+        hasSeenMatchInfo = true
+        showingMatchInfo = true
     }
 
     /// Where the user changes which photos this app may see.
