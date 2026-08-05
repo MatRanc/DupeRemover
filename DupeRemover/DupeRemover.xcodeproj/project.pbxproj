@@ -52,11 +52,20 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		5E6604B13022DEEA007F7DF0 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				FA570000000000000000A022 /* DupeRemoverTests */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
 		FA570000000000000000A004 = {
 			isa = PBXGroup;
 			children = (
 				FA570000000000000000A002 /* DupeRemover */,
 				FA570000000000000000A005 /* Products */,
+				5E6604B13022DEEA007F7DF0 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -118,14 +127,6 @@
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
-
-/* Begin PBXTargetDependency section */
-		FA570000000000000000A028 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = FA570000000000000000A006 /* DupeRemover */;
-			targetProxy = FA570000000000000000A021 /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin PBXProject section */
 		FA570000000000000000A007 /* Project object */ = {
@@ -197,6 +198,14 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		FA570000000000000000A028 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FA570000000000000000A006 /* DupeRemover */;
+			targetProxy = FA570000000000000000A021 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		FA570000000000000000A012 /* Debug */ = {
@@ -327,7 +336,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "DupeRemover/DupeRemover-macOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = MRYMJMR49S;
 				"ENABLE_APP_SANDBOX[sdk=macosx*]" = YES;
 				"ENABLE_HARDENED_RUNTIME[sdk=macosx*]" = YES;
@@ -363,7 +372,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.matranc.duperemover;
 				PRODUCT_MODULE_NAME = DupeRemover;
 				PRODUCT_NAME = "Dupe Remover";
@@ -387,7 +396,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "DupeRemover/DupeRemover-macOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = MRYMJMR49S;
 				"ENABLE_APP_SANDBOX[sdk=macosx*]" = YES;
 				"ENABLE_HARDENED_RUNTIME[sdk=macosx*]" = YES;
@@ -423,7 +432,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.matranc.duperemover;
 				PRODUCT_MODULE_NAME = DupeRemover;
 				PRODUCT_NAME = "Dupe Remover";

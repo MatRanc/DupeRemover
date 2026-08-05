@@ -43,6 +43,42 @@ extension NSImage {
 }
 #endif
 
+/// A continuation several callers may try to finish at once — the Photos callback,
+/// a deadline, the scan being cancelled — where the first one wins and the rest are
+/// no-ops. Resuming a checked continuation twice traps, so this cannot be left to
+/// "only one of them can really happen".
+nonisolated final class ResumeOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<String?, Never>?
+    private var finished = false
+
+    /// Takes ownership of the continuation. Already finished — Cancel arriving
+    /// before the request was even issued — resumes it straight away.
+    func hold(_ continuation: CheckedContinuation<String?, Never>) {
+        lock.lock()
+        if finished {
+            lock.unlock()
+            continuation.resume(returning: nil)
+        } else {
+            self.continuation = continuation
+            lock.unlock()
+        }
+    }
+
+    /// True if this call is the one that finished it.
+    @discardableResult
+    func finish(_ value: String?) -> Bool {
+        lock.lock()
+        let waiting = continuation
+        let first = !finished
+        continuation = nil
+        finished = true
+        lock.unlock()
+        waiting?.resume(returning: value)
+        return first
+    }
+}
+
 enum PhotoLibrary {
 
     // MARK: Authorization
@@ -215,6 +251,14 @@ enum PhotoLibrary {
     /// SHA-256 of the primary image resource, streamed in chunks so large originals
     /// never sit fully in memory. Local-only: iCloud-only originals are skipped to
     /// keep the "everything stays on device" guarantee. Returns nil if unavailable.
+    ///
+    /// The request has three ways to end — its own completion handler, Cancel, or a
+    /// deadline — because with network access off it sometimes has none of its own.
+    /// Some cloud-shared assets never call back at all: `locallyAvailable` reads true
+    /// off a local rendition while the original still lives in the cloud, and the
+    /// request then sits there rather than erroring. One such photo in the entire
+    /// shared library parked a hash worker for the rest of the scan, and a bare
+    /// continuation gave Cancel nothing to interrupt.
     nonisolated static func sha256(forAssetID id: String) async -> String? {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
               let resource = primaryImageResource(for: asset) else { return nil }
@@ -223,19 +267,37 @@ enum PhotoLibrary {
         options.isNetworkAccessAllowed = false
 
         var hasher = SHA256()
-        let manager = PHAssetResourceManager.default()
+        let gate = ResumeOnce()
 
-        return await withCheckedContinuation { continuation in
-            manager.requestData(for: resource, options: options) { chunk in
-                hasher.update(data: chunk)
-            } completionHandler: { error in
-                if error != nil {
-                    continuation.resume(returning: nil)
-                } else {
-                    let digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
-                    continuation.resume(returning: digest)
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                // Held before the request is issued, so the completion handler can
+                // never fire against an empty gate and lose a good digest.
+                gate.hold(continuation)
+                let requestID = PHAssetResourceManager.default()
+                    .requestData(for: resource, options: options) { chunk in
+                        hasher.update(data: chunk)
+                    } completionHandler: { error in
+                        gate.finish(error == nil
+                            ? hasher.finalize().map { String(format: "%02x", $0) }.joined()
+                            : nil)
+                    }
+                // ponytail: fixed ceiling. Network access is off, so every byte read
+                // here is local — a request that has said nothing for 30s is stuck,
+                // not slow. Make it adaptive only if a real photo ever trips it.
+                DispatchQueue.global().asyncAfter(deadline: .now() + 30) {
+                    PHAssetResourceManager.default().cancelDataRequest(requestID)
+                    if gate.finish(nil) {
+                        // Prints the culprit: this is the only place a photo goes
+                        // unread without Photos ever saying why.
+                        print("DupeRemover: hash request timed out for asset \(id)")
+                    }
                 }
             }
+        } onCancel: {
+            // The orphaned request is cancelled by the deadline above; the scan
+            // stops waiting on it now.
+            gate.finish(nil)
         }
     }
 
