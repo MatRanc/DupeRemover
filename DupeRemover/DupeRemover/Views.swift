@@ -250,12 +250,8 @@ struct ItemInfoSheet: View {
         NavigationStack {
             List {
                 Section("Date") {
-                    if item.creationDate > 0 {
-                        Text(Date(timeIntervalSince1970: item.creationDate)
-                            .formatted(date: .long, time: .shortened))
-                    } else {
-                        Text("Unknown date").foregroundStyle(.secondary)
-                    }
+                    dateRow("Created", item.creationDate)
+                    dateRow("Modified", item.mtime)
                 }
                 if let url = item.localURL {
                     Section("Folder") {
@@ -299,6 +295,20 @@ struct ItemInfoSheet: View {
                 PhotoLibrary.placement(forAssetID: id)
             }.value
             isLoading = false
+        }
+    }
+
+    /// Full date and time down to the second, with the zone: the panel exists to
+    /// tell near-identical copies apart, and minutes alone often don't.
+    @ViewBuilder
+    private func dateRow(_ label: String, _ epoch: Double) -> some View {
+        LabeledContent(label) {
+            if epoch > 0 {
+                Text(Date(timeIntervalSince1970: epoch)
+                    .formatted(date: .long, time: .complete))
+            } else {
+                Text("Unknown").foregroundStyle(.secondary)
+            }
         }
     }
 }
