@@ -260,6 +260,12 @@ enum PhotoLibrary {
     // MARK: Image requests (similarity + thumbnails)
 
     /// A downscaled CGImage suitable for Vision feature-print generation. Local-only.
+    ///
+    /// Opportunistic, not `.highQualityFormat`: with network access off, asking for full
+    /// quality returns nil for an iCloud-only asset rather than falling back to the
+    /// downscaled rendition Photos already keeps on device. Vision only ever wanted
+    /// `maxPixel`, so that rendition is a perfectly good input — and it's the only way
+    /// an optimised library gets fingerprinted at all.
     nonisolated static func cgImage(forAssetID id: String, maxPixel: CGFloat) async -> CGImage? {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject
         else { return nil }
@@ -268,9 +274,16 @@ enum PhotoLibrary {
             targetSize: CGSize(width: maxPixel, height: maxPixel),
             contentMode: .aspectFit,
             allowNetwork: false,
-            deliveryMode: .highQualityFormat
+            deliveryMode: .opportunistic
         )
-        return image?.cgImage
+        guard let cg = image?.cgImage else { return nil }
+        // A print computed from a 100px placeholder isn't comparable with prints from
+        // sharp images, and the cache key is (id, mtime, token) — downloading the
+        // original later won't invalidate it, so a bad print would stick forever.
+        // ponytail: crude size floor; tag prints with their source resolution if
+        // distances turn out noisy.
+        guard CGFloat(max(cg.width, cg.height)) >= maxPixel / 2 else { return nil }
+        return cg
     }
 
     /// Progressively delivers images for the long-press preview: Photos yields a
@@ -344,19 +357,26 @@ enum PhotoLibrary {
         let manager = PHImageManager.default()
         return await withCheckedContinuation { continuation in
             var resumed = false
+            var lastImage: PlatformImage?
             manager.requestImage(
                 for: asset,
                 targetSize: targetSize,
                 contentMode: contentMode,
                 options: options
             ) { image, info in
-                // opportunistic mode can call back twice (degraded then full); only
-                // resume once, on the final non-degraded delivery.
+                // Opportunistic mode can call back twice (degraded then full); only
+                // resume once, on the final delivery. When the full-quality version
+                // would need a download we've disallowed, that final callback carries
+                // no image — so hand back the best rendition we were actually given
+                // rather than nothing.
+                if let image { lastImage = image }
                 let degraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
-                if degraded { return }
+                let cancelled = (info?[PHImageCancelledKey] as? Bool) ?? false
+                let failed = info?[PHImageErrorKey] != nil
+                guard !degraded || cancelled || failed else { return }
                 if !resumed {
                     resumed = true
-                    continuation.resume(returning: image)
+                    continuation.resume(returning: image ?? lastImage)
                 }
             }
         }

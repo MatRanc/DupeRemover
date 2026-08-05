@@ -160,6 +160,7 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
+                iCloudNote
                 if vm.authStatus == .limited && vm.scanSource == .photosLibrary {
                     Text("You've granted access to selected photos only. Scans cover just those.")
                         .font(.caption)
@@ -190,10 +191,64 @@ struct ContentView: View {
                     groupHeader(for: group)
                 }
             }
+            // Below the results too, not only under an empty one. An identical-only
+            // scan of an optimised library finds a handful of duplicates and skips
+            // most of the library; the status line carrying that news is a single
+            // line on macOS and isn't drawn at all on iOS once a list exists, so
+            // without this the user would conclude the scan was done.
+            if showsICloudNote {
+                Section { iCloudNote.frame(maxWidth: .infinity) }
+            }
         }
         #if os(iOS)
         .listStyle(.insetGrouped)
         #endif
+    }
+
+    /// Photos left out because their originals live in iCloud. Not an error: the scan
+    /// won't download anything, and the identical phase genuinely can't work without
+    /// the original bytes. But Match similar only ever needs a 448px copy, which is
+    /// exactly what an optimised library keeps on device — so where that's still
+    /// switched off, this is one tap from finding what was skipped.
+    private var showsICloudNote: Bool {
+        vm.scanSource == .photosLibrary && vm.skippedCount > 0 && !vm.isScanning
+    }
+
+    @ViewBuilder
+    private var iCloudNote: some View {
+        if showsICloudNote {
+            VStack(spacing: 8) {
+                Label(
+                    "\(vm.skippedCount) photo\(vm.skippedCount == 1 ? " is" : "s are") in iCloud only",
+                    systemImage: "icloud"
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+                if vm.matchSimilar {
+                    Text("Their originals aren't on this \(deviceWord), so they couldn't be compared. "
+                         + "Download them in Photos to include them in a scan.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                } else {
+                    Text("Match similar can compare these using the downsized copies "
+                         + "already on this \(deviceWord).")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                    Button("Match similar photos and scan again") {
+                        vm.matchSimilar = true
+                        vm.startLibraryScan()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .padding(.top, 2)
+                }
+            }
+            .padding(.vertical, 8)
+        }
     }
 
     private var scanProgress: some View {

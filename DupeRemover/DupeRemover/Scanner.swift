@@ -510,7 +510,9 @@ final class ScanViewModel: ObservableObject {
         statusText = "Scan cancelled."
     }
 
-    private func runScan(_ allAssets: [ScanItem]) async {
+    /// Internal rather than private only so the tests can hand it items an
+    /// iCloud-optimised library would produce, which no folder scan can fake.
+    func runScan(_ allAssets: [ScanItem]) async {
         let totalSteps = self.totalSteps
         func beginStep(_ n: Int, _ name: String) {
             stepText = "Step \(n) of \(totalSteps) · \(name)"
@@ -524,7 +526,15 @@ final class ScanViewModel: ObservableObject {
         // original lives in iCloud and isn't on this device: both the hash and the
         // fingerprint deliberately refuse to download it. Silently skipping them
         // makes a scan look like it did nothing, so they get counted and reported.
+        //
+        // Seeded from every non-local photo, not just the ones we would have hashed:
+        // a photo with unique pixel dimensions is never a hash candidate, so counting
+        // only candidates reported "iCloud photos we would have hashed" under a label
+        // that reads as "iCloud photos". The similarity phase removes any it can
+        // fingerprint from a local rendition. Folder scans are unaffected — ScanItem
+        // defaults isLocal to true.
         var unreadable: Set<String> = []
+        for a in allAssets where !a.isLocal { unreadable.insert(a.id) }
 
         // Step 1: identical detection by SHA-256, only for pixel-dimension
         // collisions (byte-identical files always share their dimensions, so this
@@ -541,15 +551,14 @@ final class ScanViewModel: ObservableObject {
             if let entry = await cache.get(id: a.id, mtime: a.mtime, token: a.token),
                let h = entry.sha256 {
                 hashByIndex[i] = h
-            } else if !a.isLocal {
-                // Hashing needs the original bytes and the scan won't download them,
-                // so the read can only fail. Failures aren't cached — a photo you
-                // download later must become hashable — which is why attempting them
-                // meant re-failing on every single scan.
-                unreadable.insert(a.id)
-            } else {
+            } else if a.isLocal {
                 toHash.append(i)
             }
+            // Non-local photos are already in `unreadable` and never queued: hashing
+            // needs the original bytes and the scan won't download them, so the read
+            // can only fail. Failures aren't cached — a photo you download later must
+            // become hashable — which is why attempting them meant re-failing on
+            // every single scan.
         }
         statusText = "Hashing \(toHash.count) of \(allAssets.count) photos…"
 
@@ -791,14 +800,18 @@ final class ScanViewModel: ObservableObject {
             statusText = "\(parts.joined(separator: " · ")) groups · \(dupCount) extras of \(allAssets.count) photos."
         }
         skippedCount = unreadable.count
-        if !unreadable.isEmpty {
-            // Worth saying out loud: on a Mac set to optimise storage this can be
-            // the entire library, and the scan then looks broken rather than
-            // limited. Comparing photos means reading their pixels, and the app
-            // will not pull an original down from iCloud to do it.
-            statusText += scanSource == .photosLibrary
-                ? " \(unreadable.count) couldn't be read — they're not downloaded to this \(deviceWord)."
-                : " \(unreadable.count) file\(unreadable.count == 1 ? "" : "s") couldn't be read."
+        // Worth saying out loud: on a Mac set to optimise storage this can be the
+        // entire library, and the scan then looks broken rather than limited.
+        // Comparing photos means reading their pixels, and the app will not pull an
+        // original down from iCloud to do it.
+        //
+        // Only the folder path says it here. For the Photos library the view shows
+        // it — as a state of the library rather than a failure of the scan, and with
+        // a way out — because this line isn't drawn at all on iOS once there are
+        // groups to list, and saying it in both places printed the same count twice
+        // under an empty result.
+        if !unreadable.isEmpty && scanSource == .folder {
+            statusText += " \(unreadable.count) file\(unreadable.count == 1 ? "" : "s") couldn't be read."
         }
 
         await refreshCacheStats()
@@ -870,11 +883,12 @@ final class ScanViewModel: ObservableObject {
             statusText = "Deleted \(trashed.count) — recoverable from the Trash or Recently Deleted."
                 + (failed > 0 ? " \(failed) could not be deleted." : "")
         } else if failed > 0 {
-            // Not every location supports a Trash — a file the picker handed us
-            // from a read-only or provider-backed folder can refuse the move. Say
-            // so, rather than leaving the user staring at "nothing happened".
+            // Two different refusals, one message: a file the picker handed us from a
+            // read-only or provider-backed folder can't be moved to a Trash, and a
+            // shared-album photo you don't own isn't yours to delete. Say so, rather
+            // than leaving the user staring at "nothing happened".
             statusText = "Couldn't delete \(failed) item\(failed == 1 ? "" : "s"). "
-                + "They may be somewhere the system won't let the app move files from."
+                + "Shared photos you don't own, and files the system protects, can't be removed from here."
         } else {
             statusText = "Nothing deleted."
         }

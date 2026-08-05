@@ -373,6 +373,50 @@ struct ScanPipelineTests {
         #expect(!vm.isScanning)
     }
 
+    /// An iCloud-optimised library: `unreadable` used to be filled only from photos
+    /// that shared their pixel dimensions with another, so a non-local photo nothing
+    /// else collided with was never counted — the reported number was "iCloud photos
+    /// we would have hashed" under a label reading "iCloud photos".
+    @Test("every iCloud-only photo is counted, not just the ones we would have hashed")
+    func iCloudOnlyPhotosAreAllCounted() async {
+        func item(_ n: Int, token: Int64, isLocal: Bool) -> ScanItem {
+            ScanItem(
+                id: "asset-\(n)", source: .asset("asset-\(n)"), name: "\(n).heic",
+                mtime: 0, creationDate: 0, byteSize: 0,
+                pixelWidth: 0, pixelHeight: 0, token: token, isLocal: isLocal
+            )
+        }
+
+        let vm = model("icloud")
+        vm.scanSource = .photosLibrary
+        // Two share a token (hash candidates), one is a dimension of its own. All
+        // three are in iCloud; before the fix only the first two were counted.
+        await vm.runScan([
+            item(1, token: 100, isLocal: false),
+            item(2, token: 100, isLocal: false),
+            item(3, token: 999, isLocal: false),
+        ])
+
+        #expect(vm.skippedCount == 3)
+        #expect(vm.groups.isEmpty)
+        // The view says it, not the status line — so the count must not be described
+        // as a failure here, or it'd be stated twice under an empty result.
+        #expect(!vm.statusText.contains("couldn't be read"))
+    }
+
+    @Test("local photos are not counted as skipped")
+    func localPhotosAreNotSkipped() async {
+        let dir = TestImages.tempDir("all-local")
+        let original = TestImages.write(.beach, to: dir, named: "a.png")
+        TestImages.copy(original, to: "b.png")
+
+        let vm = model("local")
+        await vm.scanFolders([dir])
+
+        #expect(vm.skippedCount == 0)
+        #expect(!vm.statusText.contains("iCloud"))
+    }
+
     @Test("photos of the same size that differ are not called identical")
     func sameSizeDifferentBytes() async {
         let dir = TestImages.tempDir("same-size")
