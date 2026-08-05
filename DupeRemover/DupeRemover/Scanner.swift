@@ -610,6 +610,11 @@ final class ScanViewModel: ObservableObject {
                 if let entry = await cache.get(id: a.id, mtime: a.mtime, token: a.token),
                    let data = comparableFeaturePrint(entry, revision: currentFeaturePrintRevision) {
                     printsData[i] = data
+                    // A cached print is a photo we compared, exactly like one computed
+                    // below. Without this an iCloud-only photo fingerprinted on an
+                    // earlier scan was re-counted as uncompared on every scan after,
+                    // because `unreadable` is seeded from locality alone.
+                    unreadable.remove(a.id)
                 } else {
                     missing.append(i)
                 }

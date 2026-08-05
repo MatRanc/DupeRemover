@@ -404,6 +404,38 @@ struct ScanPipelineTests {
         #expect(!vm.statusText.contains("couldn't be read"))
     }
 
+    /// The similarity phase reaches iCloud-only photos through the downscaled
+    /// rendition on device, and clears each one it fingerprints. It used to clear
+    /// only the ones it computed *that run*: a photo fingerprinted on an earlier scan
+    /// came back from the cache and stayed counted, so the second scan of an
+    /// optimised library reported photos it had just compared as uncompared.
+    ///
+    /// Driven with file-backed items marked non-local, which is the one way to get a
+    /// fingerprint that really succeeds for a photo the hash phase refuses to touch.
+    @Test("a fingerprint from the cache still counts as compared")
+    func cachedFingerprintClearsTheSkip() async {
+        let dir = TestImages.tempDir("icloud-cached")
+        let a = TestImages.write(.beach, to: dir, named: "a.png")
+        let b = TestImages.write(.forest, to: dir, named: "b.png")
+        let items = [a, b].map {
+            ScanItem(
+                id: $0.path, source: .file($0), name: $0.lastPathComponent,
+                mtime: 0, creationDate: 0, byteSize: 0,
+                pixelWidth: 0, pixelHeight: 0, token: Int64($0.path.count), isLocal: false
+            )
+        }
+
+        let vm = model("icloud-cached")
+        vm.scanSource = .photosLibrary
+        vm.matchSimilar = true
+
+        await vm.runScan(items)
+        #expect(vm.skippedCount == 0)   // fingerprinted this run
+
+        await vm.runScan(items)
+        #expect(vm.skippedCount == 0)   // fingerprinted last run, served from cache
+    }
+
     @Test("local photos are not counted as skipped")
     func localPhotosAreNotSkipped() async {
         let dir = TestImages.tempDir("all-local")
