@@ -324,6 +324,29 @@ struct ScanPipelineTests {
         #expect(vm.stepText.isEmpty)
     }
 
+    /// Cancelled before the first checkpoint, which is the one place the two
+    /// outcomes could be confused: a stopped scan has no photos either, and must
+    /// not claim the folder was empty.
+    @Test("a cancelled scan says so rather than reporting nothing found")
+    func cancelledScanReportsItself() async {
+        let dir = TestImages.tempDir("cancelled")
+        let original = TestImages.write(.beach, to: dir, named: "a.png")
+        TestImages.copy(original, to: "b.png")
+
+        let vm = model("cancel")
+        vm.matchSimilar = true
+        vm.startFolderScan([dir])
+        vm.cancelScan()
+        // The task may not have run a line yet, so wait for it to both start and
+        // finish rather than for `isScanning` alone.
+        while !vm.hasScanned || vm.isScanning { await Task.yield() }
+
+        #expect(vm.groups.isEmpty)
+        #expect(vm.statusText == "Scan cancelled.")
+        #expect(vm.progress == nil)
+        #expect(vm.stepText.isEmpty)
+    }
+
     @Test("scanning no folders at all is a no-op")
     func noFoldersPicked() async {
         let vm = model()

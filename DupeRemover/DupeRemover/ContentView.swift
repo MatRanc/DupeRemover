@@ -45,7 +45,7 @@ struct ContentView: View {
             allowsMultipleSelection: true
         ) { result in
             if case .success(let urls) = result {
-                Task { await vm.scanFolders(urls) }
+                vm.startFolderScan(urls)
             }
         }
         #else
@@ -68,8 +68,11 @@ struct ContentView: View {
     private var albumPicker: some View {
         AlbumPickerSheet(
             albums: vm.albums,
-            selectedID: vm.selectedAlbumID
-        ) { vm.selectAlbum($0) }
+            isLoading: vm.isLoadingAlbums,
+            personalCount: vm.personalCount,
+            sharedCount: vm.sharedCount,
+            scope: vm.scope
+        ) { vm.scope = $0 }
     }
 
     // MARK: Shared controls
@@ -108,7 +111,7 @@ struct ContentView: View {
     func startScan() {
         switch vm.scanSource {
         case .photosLibrary:
-            Task { await vm.scanLibrary() }
+            vm.startLibraryScan()
         case .folder:
             #if os(macOS)
             vm.chooseFoldersAndScan()
@@ -227,6 +230,13 @@ struct ContentView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
             }
+
+            // Lives with the progress, so it's on screen for every phase rather
+            // than only whichever ones remembered to offer a way out.
+            Button("Cancel") { vm.cancelScan() }
+                .buttonStyle(.bordered)
+                .keyboardShortcut(.cancelAction)
+                .padding(.top, 4)
             #if os(iOS)
             Label("Keep Dupe Remover open while it scans.", systemImage: "exclamationmark.circle")
                 .font(.caption)
@@ -287,7 +297,7 @@ extension ContentView {
                     Button {
                         showingAlbumPicker = true
                     } label: {
-                        Label(vm.selectedAlbumTitle ?? "Entire library", systemImage: "photo.stack")
+                        Label(vm.scopeTitle, systemImage: "photo.stack")
                             .lineLimit(1)
                     }
                     .buttonStyle(.bordered)
@@ -402,30 +412,32 @@ extension ContentView {
             sourcePicker
                 .fixedSize()
 
-            Button(action: startScan) {
-                vm.scanSource == .folder
-                    ? Label("Choose folder…", systemImage: "folder")
-                    : Label("Scan Library", systemImage: "photo.stack")
-            }
-            .disabled(vm.isScanning
-                      || (vm.scanSource == .photosLibrary && !vm.hasFullOrLimitedAccess))
-
+            // Scope first, then the button that acts on it: you pick what to scan
+            // before you scan it.
             if vm.scanSource == .photosLibrary {
                 Button {
                     showingAlbumPicker = true
                 } label: {
-                    Label(vm.selectedAlbumTitle ?? "Entire library", systemImage: "rectangle.stack")
+                    Label(vm.scopeTitle, systemImage: "rectangle.stack")
                         .lineLimit(1)
                 }
                 .disabled(vm.isScanning)
-                .help("Limit the scan to one album")
+                .help("Choose which photos to scan")
             }
 
-            // Only the folder source needs this: "Scan Library" already rescans,
+            Button(action: startScan) {
+                vm.scanSource == .folder
+                    ? Label("Choose folder…", systemImage: "folder")
+                    : Label("Scan", systemImage: "sparkle.magnifyingglass")
+            }
+            .disabled(vm.isScanning
+                      || (vm.scanSource == .photosLibrary && !vm.hasFullOrLimitedAccess))
+
+            // Only the folder source needs this: "Scan" already rescans,
             // whereas "Choose folder…" would make you pick the same folder again.
             if vm.scanSource == .folder, !vm.lastScannedFolders.isEmpty {
                 Button {
-                    Task { await vm.rescan() }
+                    vm.startRescan()
                 } label: {
                     Label("Rescan", systemImage: "arrow.clockwise")
                 }

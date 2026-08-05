@@ -23,6 +23,10 @@ nonisolated struct ScanItem: Identifiable, Hashable, Sendable {
     // Cheap collision key for identical-detection and the cache's change token:
     // pixel count for assets, byte size for files. See CacheEntry.token.
     let token: Int64
+    // Whether the original is on this device. False for iCloud-only assets, whose
+    // bytes the scan deliberately will not download — so hashing them can only
+    // fail. Always true for files.
+    var isLocal: Bool = true
 
     var localURL: URL? {
         if case .file(let url) = source { return url }

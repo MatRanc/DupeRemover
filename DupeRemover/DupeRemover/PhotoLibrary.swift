@@ -15,6 +15,20 @@ nonisolated struct AlbumOption: Identifiable, Hashable, Sendable {
     let count: Int
 }
 
+/// Where a library photo actually lives, for the row's Info action.
+nonisolated struct AssetPlacement: Sendable {
+    let source: String
+    let albums: [String]
+}
+
+/// What a library scan covers. Default is everything; the rest narrow the fetch.
+nonisolated enum ScanScope: Hashable, Sendable {
+    case entireLibrary
+    case personal           // your own photos, including anything synced from a Mac
+    case shared             // an iCloud Shared Library or shared albums
+    case album(String)      // PHAssetCollection.localIdentifier
+}
+
 // The one place the two platforms' image types differ. Everything downstream
 // takes a PlatformImage and hands it to SwiftUI's Image(platform:).
 #if os(iOS)
@@ -42,20 +56,52 @@ enum PhotoLibrary {
 
     // MARK: Enumeration
 
-    /// All image assets, optionally limited to one album. Runs off the main actor.
+    /// Photos you own. iTunes-synced assets sit here rather than under "shared":
+    /// they came off your own Mac, nobody else contributed them.
+    nonisolated static let personalSources: PHAssetSourceType = [.typeUserLibrary, .typeiTunesSynced]
+    nonisolated static let sharedSources: PHAssetSourceType = [.typeCloudShared]
+    nonisolated static let allSources: PHAssetSourceType = [.typeUserLibrary, .typeCloudShared, .typeiTunesSynced]
+
+    /// Images, newest first, from the named asset sources.
+    ///
+    /// `includeAssetSourceTypes` matters more than it looks: left unset, a
+    /// library-wide `fetchAssets(with:)` returns only `typeUserLibrary` assets. On a
+    /// Mac signed into an iCloud Shared Library every asset is `typeCloudShared`
+    /// instead, so the fetch came back completely empty — "No photos found." — while
+    /// the same photos counted fine through albums, which don't apply that filter.
+    nonisolated static func imageFetchOptions(sources: PHAssetSourceType = allSources) -> PHFetchOptions {
+        let options = PHFetchOptions()
+        options.includeAssetSourceTypes = sources
+        options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
+        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        return options
+    }
+
+    /// How many images each source holds. Both rows only earn their place in the
+    /// scope sheet when a library actually mixes the two.
+    nonisolated static func sourceCounts() -> (personal: Int, shared: Int) {
+        (PHAsset.fetchAssets(with: imageFetchOptions(sources: personalSources)).count,
+         PHAsset.fetchAssets(with: imageFetchOptions(sources: sharedSources)).count)
+    }
+
+    /// All image assets within a scope. Runs off the main actor.
     /// `progress` is called with a 0...1 fraction as enumeration advances — reading
     /// per-asset resources (filename, size) is the slow part for large libraries,
     /// so this drives a real progress bar instead of an indeterminate spinner.
     nonisolated static func fetchImageAssets(
-        inAlbum albumID: String?,
+        scope: ScanScope,
         progress: @escaping @Sendable (Double) -> Void = { _ in }
     ) -> [ScanItem] {
-        let options = PHFetchOptions()
-        options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
-        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        let sources: PHAssetSourceType
+        switch scope {
+        case .personal: sources = personalSources
+        case .shared: sources = sharedSources
+        case .entireLibrary, .album: sources = allSources
+        }
+        let options = imageFetchOptions(sources: sources)
 
         let result: PHFetchResult<PHAsset>
-        if let albumID,
+        if case .album(let albumID) = scope,
            let collection = PHAssetCollection.fetchAssetCollections(
                withLocalIdentifiers: [albumID], options: nil).firstObject {
             result = PHAsset.fetchAssets(in: collection, options: options)
@@ -67,7 +113,13 @@ enum PhotoLibrary {
         let total = result.count
         assets.reserveCapacity(total)
         let step = max(1, total / 100)   // report at most ~100 progress ticks
-        result.enumerateObjects { asset, index, _ in
+        result.enumerateObjects { asset, index, stop in
+            // Reading resources for tens of thousands of assets is the longest
+            // uninterruptible stretch of a scan unless it checks.
+            if Task.isCancelled {
+                stop.pointee = true
+                return
+            }
             let mtime = (asset.modificationDate ?? asset.creationDate ?? .distantPast)
                 .timeIntervalSince1970
             let ctime = (asset.creationDate ?? .distantPast).timeIntervalSince1970
@@ -85,7 +137,8 @@ enum PhotoLibrary {
                 pixelHeight: asset.pixelHeight,
                 // Pixel count, not byte size: iCloud-only originals often report
                 // no local size, and byte-identical photos always share dimensions.
-                token: Int64(asset.pixelWidth) * Int64(asset.pixelHeight)
+                token: Int64(asset.pixelWidth) * Int64(asset.pixelHeight),
+                isLocal: isLocallyAvailable(resources)
             ))
             if index % step == 0 || index == total - 1 {
                 progress(total > 0 ? Double(index + 1) / Double(total) : 1)
@@ -113,6 +166,31 @@ enum PhotoLibrary {
         collect(PHAssetCollection.fetchAssetCollections(
             with: .album, subtype: .any, options: nil))
         return out.sorted { $0.count > $1.count }
+    }
+
+    /// Where one photo lives: the library it came from and the albums holding it.
+    /// Looked up for a single asset on demand, which is the only reason the
+    /// per-asset album fetch is affordable at all.
+    nonisolated static func placement(forAssetID id: String) -> AssetPlacement? {
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject
+        else { return nil }
+
+        let source: String
+        if asset.sourceType.contains(.typeCloudShared) {
+            source = "Shared library"
+        } else if asset.sourceType.contains(.typeiTunesSynced) {
+            source = "Synced from a computer"
+        } else {
+            source = "Personal library"
+        }
+
+        // User albums only. Smart albums would add "Recents" to every single photo.
+        var albums: [String] = []
+        PHAssetCollection.fetchAssetCollectionsContaining(asset, with: .album, options: nil)
+            .enumerateObjects { collection, _, _ in
+                if let title = collection.localizedTitle { albums.append(title) }
+            }
+        return AssetPlacement(source: source, albums: albums.sorted())
     }
 
     // MARK: Hashing (identical detection)
@@ -145,8 +223,11 @@ enum PhotoLibrary {
     }
 
     nonisolated private static func primaryImageResource(for asset: PHAsset) -> PHAssetResource? {
-        let resources = PHAssetResource.assetResources(for: asset)
-        return resources.first { $0.type == .photo }
+        primaryImageResource(in: PHAssetResource.assetResources(for: asset))
+    }
+
+    nonisolated private static func primaryImageResource(in resources: [PHAssetResource]) -> PHAssetResource? {
+        resources.first { $0.type == .photo }
             ?? resources.first { $0.type == .fullSizePhoto }
             ?? resources.first
     }
@@ -155,10 +236,14 @@ enum PhotoLibrary {
     /// of the public `PHAssetResource` API, so we read it via KVC; returns 0 when the
     /// key is missing (e.g. iCloud-only originals that report no local size).
     nonisolated private static func fileSize(of resources: [PHAssetResource]) -> Int64 {
-        let resource = resources.first { $0.type == .photo }
-            ?? resources.first { $0.type == .fullSizePhoto }
-            ?? resources.first
-        return (resource?.value(forKey: "fileSize") as? Int64) ?? 0
+        (primaryImageResource(in: resources)?.value(forKey: "fileSize") as? Int64) ?? 0
+    }
+
+    /// Whether the original bytes are on this device. Also not public API — same KVC
+    /// route as `fileSize`. A missing key reads as available, so the worst an OS
+    /// change can do is put us back to today's behaviour of finding out by failing.
+    nonisolated private static func isLocallyAvailable(_ resources: [PHAssetResource]) -> Bool {
+        (primaryImageResource(in: resources)?.value(forKey: "locallyAvailable") as? Bool) ?? true
     }
 
     // MARK: Image requests (similarity + thumbnails)

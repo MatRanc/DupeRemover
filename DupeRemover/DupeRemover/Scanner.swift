@@ -92,6 +92,26 @@ nonisolated final class PrintTable: @unchecked Sendable {
     }
 }
 
+/// Cancellation the comparison's workers can actually see.
+///
+/// `Task.isCancelled` reads false inside `DispatchQueue.concurrentPerform`, whose
+/// closures run on dispatch threads rather than in the task. So the scan's cancel
+/// handler sets this flag and the workers poll it once per row.
+nonisolated final class CancelFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    var isSet: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return value
+    }
+
+    func set() {
+        lock.lock(); defer { lock.unlock() }
+        value = true
+    }
+}
+
 /// Shared state for the parallel comparison. Workers own their own match buffers
 /// and merge once at the end, so the lock is touched per row-batch, not per pair.
 nonisolated final class CompareState: @unchecked Sendable {
@@ -237,10 +257,13 @@ final class ScanViewModel: ObservableObject {
     @Published private(set) var hasScanned = false
     @Published private(set) var lastScannedFolders: [URL] = []
 
-    // nil = entire library. Otherwise scoped to one album.
-    @Published var selectedAlbumID: String? = nil
-    @Published var selectedAlbumTitle: String? = nil
+    @Published var scope: ScanScope = .entireLibrary
     @Published var albums: [AlbumOption] = []
+    /// Counting the photos in every album takes seconds on a large library, and an
+    /// empty scope sheet in the meantime reads as "you have no albums".
+    @Published private(set) var isLoadingAlbums = false
+    @Published private(set) var personalCount = 0
+    @Published private(set) var sharedCount = 0
 
     @Published var authStatus = PhotoLibrary.authorizationStatus
 
@@ -252,6 +275,11 @@ final class ScanViewModel: ObservableObject {
     // ponytail: no bookmarks, so a relaunch re-prompts — same as the Mac app
     // has always behaved. Persist bookmarks if that ever grates.
     private var scopedFolders: [URL] = []
+
+    /// The running scan, kept so Cancel has something to cancel. Views start scans
+    /// through the `start…` methods; the `async` ones stay callable directly (the
+    /// tests await them), they just aren't cancellable that way.
+    private var scanTask: Task<Void, Never>?
 
     /// `cacheDirectory` exists so tests can drive a real scan against a throwaway
     /// cache instead of the one the user's app is using.
@@ -274,14 +302,25 @@ final class ScanViewModel: ObservableObject {
     }
 
     func loadAlbums() async {
-        albums = await Task.detached(priority: .userInitiated) {
-            PhotoLibrary.fetchAlbums()
+        isLoadingAlbums = true
+        defer { isLoadingAlbums = false }
+        let loaded = await Task.detached(priority: .userInitiated) {
+            (albums: PhotoLibrary.fetchAlbums(), counts: PhotoLibrary.sourceCounts())
         }.value
+        albums = loaded.albums
+        personalCount = loaded.counts.personal
+        sharedCount = loaded.counts.shared
     }
 
-    func selectAlbum(_ album: AlbumOption?) {
-        selectedAlbumID = album?.id
-        selectedAlbumTitle = album?.title
+    /// What the scope button reads. Albums are looked up by id so the title can
+    /// never drift from the list the picker is showing.
+    var scopeTitle: String {
+        switch scope {
+        case .entireLibrary: return "Entire library"
+        case .personal: return "Personal library"
+        case .shared: return "Shared library"
+        case .album(let id): return albums.first { $0.id == id }?.title ?? "Album"
+        }
     }
 
     func refreshCacheStats() async {
@@ -305,6 +344,24 @@ final class ScanViewModel: ObservableObject {
         scopedFolders = folders.filter { $0.startAccessingSecurityScopedResource() }
     }
 
+    // MARK: Start and stop
+    //
+    // Every scan the user starts runs on `scanTask`, so Cancel reaches it whichever
+    // phase it's in.
+
+    func startLibraryScan() { scanTask = Task { await self.scanLibrary() } }
+    func startFolderScan(_ folders: [URL]) { scanTask = Task { await self.scanFolders(folders) } }
+    func startRescan() { scanTask = Task { await self.rescan() } }
+
+    /// Deliberately not guarded on `isScanning`: a scan that has been started but
+    /// hasn't reached its first `await` yet is still cancellable, and refusing here
+    /// would let it run on with the Cancel button already pressed.
+    func cancelScan() {
+        guard let task = scanTask, !task.isCancelled else { return }
+        if isScanning { statusText = "Cancelling…" }
+        task.cancel()
+    }
+
     #if os(macOS)
     /// macOS keeps its NSOpenPanel; iOS presents `.fileImporter` from the view.
     /// One `.fileImporter` would serve both — tracked as an issue rather than
@@ -316,8 +373,7 @@ final class ScanViewModel: ObservableObject {
         panel.allowsMultipleSelection = true
         panel.prompt = "Scan"
         guard panel.runModal() == .OK else { return }
-        let urls = panel.urls
-        Task { await scanFolders(urls) }
+        startFolderScan(panel.urls)
     }
     #endif
 
@@ -330,9 +386,16 @@ final class ScanViewModel: ObservableObject {
         await withScanChrome {
             self.stepText = "Step 1 of \(self.totalSteps) · Reading folders"
             self.statusText = "Looking for images…"
-            return await Task.detached(priority: .userInitiated) {
+            // Detached to stay off the main actor, which also means it doesn't
+            // inherit cancellation — hence the handler.
+            let walk = Task.detached(priority: .userInitiated) {
                 FileSource.enumerate(folders)
-            }.value
+            }
+            return await withTaskCancellationHandler {
+                await walk.value
+            } onCancel: {
+                walk.cancel()
+            }
         } emptyMessage: {
             "No image files found."
         }
@@ -341,7 +404,7 @@ final class ScanViewModel: ObservableObject {
     func scanLibrary() async {
         guard hasFullOrLimitedAccess else { return }
         scanSource = .photosLibrary
-        let albumID = selectedAlbumID
+        let scope = self.scope
 
         await withScanChrome {
             self.stepText = "Step 1 of \(self.totalSteps) · Reading library"
@@ -354,18 +417,22 @@ final class ScanViewModel: ObservableObject {
             let readStart = Date()
             let (progressStream, progressCont) = AsyncStream<Double>.makeStream()
             let fetchTask = Task.detached(priority: .userInitiated) { () -> [ScanItem] in
-                let assets = PhotoLibrary.fetchImageAssets(inAlbum: albumID) { frac in
+                let assets = PhotoLibrary.fetchImageAssets(scope: scope) { frac in
                     progressCont.yield(frac)
                 }
                 progressCont.finish()
                 return assets
             }
-            for await frac in progressStream {
-                self.progress = frac
-                self.statusText = "Reading your library… \(Int(frac * 100))%"
-                self.etaText = remainingTimeText(start: readStart, fraction: frac)
+            return await withTaskCancellationHandler {
+                for await frac in progressStream {
+                    self.progress = frac
+                    self.statusText = "Reading your library… \(Int(frac * 100))%"
+                    self.etaText = remainingTimeText(start: readStart, fraction: frac)
+                }
+                return await fetchTask.value
+            } onCancel: {
+                fetchTask.cancel()
             }
-            return await fetchTask.value
         } emptyMessage: {
             // An empty library almost never means an empty library. Far more often
             // the app holds access to selected photos only: the fetch then returns
@@ -375,7 +442,9 @@ final class ScanViewModel: ObservableObject {
                     + "none of them are here. Give it access to more photos in "
                     + "\(settingsAppName) ▸ Privacy & Security ▸ Photos."
             }
-            return "No photos found\(self.selectedAlbumTitle.map { " in \($0)" } ?? "")."
+            return self.scope == .entireLibrary
+                ? "No photos found."
+                : "No photos found in \(self.scopeTitle)."
         }
     }
 
@@ -415,6 +484,10 @@ final class ScanViewModel: ObservableObject {
         progress = nil
         etaText = nil
 
+        // Ahead of the empty check: a cancelled read returns nothing, and
+        // "No photos found." is a lie about a scan the user stopped.
+        guard !Task.isCancelled else { return finishCancelled() }
+
         guard !items.isEmpty else {
             statusText = emptyMessage()
             stepText = ""
@@ -422,6 +495,19 @@ final class ScanViewModel: ObservableObject {
             return
         }
         await runScan(items)
+    }
+
+    /// Every phase leaves the UI the same way when the user stops it: nothing
+    /// half-shown, and a status line that says what happened.
+    private func finishCancelled() {
+        groups = []
+        selected = []
+        progress = nil
+        stepText = ""
+        etaText = nil
+        hintText = nil
+        isScanning = false
+        statusText = "Scan cancelled."
     }
 
     private func runScan(_ allAssets: [ScanItem]) async {
@@ -448,7 +534,6 @@ final class ScanViewModel: ObservableObject {
         let candidateIndexes = byDims.values.filter { $0.count > 1 }.flatMap { $0 }
 
         beginStep(2, "Finding identical photos")
-        statusText = "Hashing \(candidateIndexes.count) of \(allAssets.count) photos…"
 
         var toHash: [Int] = []
         for i in candidateIndexes {
@@ -456,16 +541,26 @@ final class ScanViewModel: ObservableObject {
             if let entry = await cache.get(id: a.id, mtime: a.mtime, token: a.token),
                let h = entry.sha256 {
                 hashByIndex[i] = h
+            } else if !a.isLocal {
+                // Hashing needs the original bytes and the scan won't download them,
+                // so the read can only fail. Failures aren't cached — a photo you
+                // download later must become hashable — which is why attempting them
+                // meant re-failing on every single scan.
+                unreadable.insert(a.id)
             } else {
                 toHash.append(i)
             }
         }
+        statusText = "Hashing \(toHash.count) of \(allAssets.count) photos…"
 
         if !toHash.isEmpty {
             progress = 0
             var done = 0
             let hashStart = Date()
             await withTaskGroupLimited(items: toHash, maxConcurrent: 4) { i in
+                // Cancelled work returns immediately instead of hashing a file
+                // nobody will look at; the group then drains in moments.
+                if Task.isCancelled { return (i, String?.none) }
                 let h = await sha256(of: allAssets[i])
                 return (i, h)
             } onResult: { result in
@@ -487,6 +582,7 @@ final class ScanViewModel: ObservableObject {
             progress = nil
             etaText = nil
         }
+        guard !Task.isCancelled else { return finishCancelled() }
 
         var byHash: [String: [Int]] = [:]
         for (i, h) in hashByIndex { byHash[h, default: []].append(i) }
@@ -521,6 +617,7 @@ final class ScanViewModel: ObservableObject {
                 // requests, so cap parallelism. Beyond ~4 we just multiply image
                 // request contention without speeding up inference.
                 await withTaskGroupLimited(items: missing, maxConcurrent: 4) { i -> (Int, ArchivedPrint?) in
+                    if Task.isCancelled { return (i, nil) }
                     guard let cg = await visionImage(for: allAssets[i]),
                           let obs = await computeFeaturePrintOffPool(from: cg),
                           let data = archiveFeaturePrint(obs) else { return (i, nil) }
@@ -547,6 +644,7 @@ final class ScanViewModel: ObservableObject {
                 progress = nil
                 etaText = nil
             }
+            guard !Task.isCancelled else { return finishCancelled() }
 
             beginStep(4, "Comparing photos")
             progress = 0
@@ -562,6 +660,7 @@ final class ScanViewModel: ObservableObject {
             let threshold = Float(tolerancePercent / 100.0)
             let compareStart = Date()
             let (cmpStream, cmpCont) = AsyncStream<Double>.makeStream()
+            let cancelled = CancelFlag()
             let compareTask = Task.detached(priority: .userInitiated) { () -> [(Int, Int)] in
                 // Flat parallel arrays, not a dictionary: the inner loop runs ~n²/2
                 // times, so a keyed lookup there costs a billion hash probes to learn
@@ -571,6 +670,7 @@ final class ScanViewModel: ObservableObject {
                 ids.reserveCapacity(box.value.count)
                 prints.reserveCapacity(box.value.count)
                 for i in box.value.keys.sorted() {
+                    if cancelled.isSet { break }
                     autoreleasepool {
                         guard let data = box.value[i],
                               let obs = unarchiveFeaturePrint(data) else { return }
@@ -604,7 +704,7 @@ final class ScanViewModel: ObservableObject {
                     var local: [(Int, Int)] = []
                     var pending = 0
                     var ii = w
-                    while ii < n {
+                    while ii < n, !cancelled.isSet {
                         // computeDistance is Objective-C and autoreleases; over ~n²/2
                         // calls with no pool to drain, that alone grew the footprint
                         // by 904MB in 90 seconds. Drain once per row.
@@ -638,14 +738,20 @@ final class ScanViewModel: ObservableObject {
                 cmpCont.finish()
                 return state.matches
             }
-            for await frac in cmpStream {
-                progress = frac
-                statusText = "Comparing fingerprints… \(Int(frac * 100))%"
-                etaText = remainingTimeText(start: compareStart, fraction: frac)
+            let pairs = await withTaskCancellationHandler {
+                for await frac in cmpStream {
+                    progress = frac
+                    statusText = "Comparing fingerprints… \(Int(frac * 100))%"
+                    etaText = remainingTimeText(start: compareStart, fraction: frac)
+                }
+                return await compareTask.value
+            } onCancel: {
+                cancelled.set()
+                compareTask.cancel()
             }
-            let pairs = await compareTask.value
             progress = nil
             etaText = nil
+            guard !Task.isCancelled else { return finishCancelled() }
 
             for (i, j) in pairs { uf.union(i, j) }
         }

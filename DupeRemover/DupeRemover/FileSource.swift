@@ -28,6 +28,9 @@ enum FileSource {
                 options: [.skipsHiddenFiles, .skipsPackageDescendants]
             ) else { continue }
             for case let url as URL in enumerator {
+                // Walking a deep tree can run for a while; the caller checks
+                // cancellation again as soon as this returns.
+                if Task.isCancelled { return items }
                 guard imageExtensions.contains(url.pathExtension.lowercased()) else { continue }
                 let r = try? url.resourceValues(forKeys: [
                     .fileSizeKey, .isRegularFileKey, .contentModificationDateKey, .creationDateKey,

@@ -33,6 +33,9 @@ struct ItemRow: View {
     let item: ScanItem
     let isSelected: Bool
     let onToggle: () -> Void
+    #if os(iOS)
+    @State private var showingInfo = false
+    #endif
 
     var body: some View {
         HStack(spacing: 12) {
@@ -79,6 +82,18 @@ struct ItemRow: View {
         .contentShape(Rectangle())
         .onTapGesture { onToggle() }
         #if os(iOS)
+        // Two photos in a group look identical by definition; the useful question is
+        // where each one lives. Swipe rather than a permanent button, so the row
+        // stays a thumbnail and a name.
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button {
+                showingInfo = true
+            } label: {
+                Label("Info", systemImage: "info.circle")
+            }
+            .tint(.blue)
+        }
+        .sheet(isPresented: $showingInfo) { ItemInfoSheet(item: item) }
         .contextMenu {
             Button {
                 onToggle()
@@ -220,6 +235,67 @@ struct ItemPreview: View {
 }
 #endif
 
+// MARK: - Where a photo lives
+
+#if os(iOS)
+/// Swiped up from a result row. Answers the one thing the thumbnail can't: which
+/// library or folder this particular copy came from.
+struct ItemInfoSheet: View {
+    let item: ScanItem
+    @Environment(\.dismiss) private var dismiss
+    @State private var placement: AssetPlacement?
+    @State private var isLoading = true
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if let url = item.localURL {
+                    Section("Folder") {
+                        Text(url.deletingLastPathComponent().path)
+                            .font(.callout)
+                            .textSelection(.enabled)
+                    }
+                } else if isLoading {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Looking it up…").foregroundStyle(.secondary)
+                    }
+                } else if let placement {
+                    Section("Library") {
+                        Text(placement.source)
+                    }
+                    Section("Albums") {
+                        if placement.albums.isEmpty {
+                            Text("Not in any album").foregroundStyle(.secondary)
+                        } else {
+                            ForEach(placement.albums, id: \.self) { Text($0) }
+                        }
+                    }
+                } else {
+                    Text("This photo is no longer in the library.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle(item.name)
+            .inlineNavigationTitle()
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+        .task {
+            guard case .asset(let id) = item.source else { isLoading = false; return }
+            placement = await Task.detached(priority: .userInitiated) {
+                PhotoLibrary.placement(forAssetID: id)
+            }.value
+            isLoading = false
+        }
+    }
+}
+#endif
+
 // MARK: - Permission gate
 
 struct PermissionView: View {
@@ -282,23 +358,53 @@ struct PermissionView: View {
 
 struct AlbumPickerSheet: View {
     let albums: [AlbumOption]
-    let selectedID: String?
-    let onSelect: (AlbumOption?) -> Void
+    let isLoading: Bool
+    let personalCount: Int
+    let sharedCount: Int
+    let scope: ScanScope
+    let onSelect: (ScanScope) -> Void
     @Environment(\.dismiss) private var dismiss
+
+    /// Splitting by source only means anything in a library that holds both. A Mac
+    /// on an iCloud Shared Library is all shared, a plain iPhone is all personal —
+    /// either way the extra rows would just restate "Entire library".
+    private var isMixedLibrary: Bool { personalCount > 0 && sharedCount > 0 }
 
     var body: some View {
         NavigationStack {
             List {
                 Section {
-                    row(title: "Entire library", count: nil, isSelected: selectedID == nil) {
-                        onSelect(nil); dismiss()
+                    row(title: "Entire library",
+                        count: isMixedLibrary ? personalCount + sharedCount : nil,
+                        isSelected: scope == .entireLibrary) {
+                        onSelect(.entireLibrary); dismiss()
+                    }
+                    if isMixedLibrary {
+                        row(title: "Personal library", count: personalCount,
+                            isSelected: scope == .personal) {
+                            onSelect(.personal); dismiss()
+                        }
+                        row(title: "Shared library", count: sharedCount,
+                            isSelected: scope == .shared) {
+                            onSelect(.shared); dismiss()
+                        }
                     }
                 }
-                if !albums.isEmpty {
+                if isLoading {
+                    Section("Albums") {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Counting your albums…")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else if !albums.isEmpty {
                     Section("Albums") {
                         ForEach(albums) { album in
-                            row(title: album.title, count: album.count, isSelected: selectedID == album.id) {
-                                onSelect(album); dismiss()
+                            row(title: album.title, count: album.count,
+                                isSelected: scope == .album(album.id)) {
+                                onSelect(.album(album.id)); dismiss()
                             }
                         }
                     }
