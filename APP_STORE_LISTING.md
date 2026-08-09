@@ -1,10 +1,10 @@
-# App Store Connect — Listing Copy (v1.1, build 9)
+# App Store Connect — Listing Copy (v1.2, build 4)
 
 Copy-paste fields for the merged macOS + iOS release.
 
 - Bundle ID: `com.matranc.duperemover`
 - App Store ID: `6770612666`
-- Version: `1.1` — Build: `9`
+- Version: `1.2` — Build: `4`
 - Platforms: macOS 14+, iOS/iPadOS 17+ (one target, universal purchase)
 - Localization: English (U.S.) only
 
@@ -54,7 +54,7 @@ First ~3 lines show above the "more" fold.
 Dupe Remover finds duplicate and near-duplicate photos and helps you clear out the extras. One app for Mac, iPhone, and iPad.
 
 SCAN WHAT YOU WANT
-Point it at your Photos library, narrow it to a single album, or pick a folder instead. Both sources work the same on every platform.
+Point it at your Photos library — the whole thing, personal photos only, shared photos only, or a single album — or pick a folder instead. Both sources work the same on every platform. Cancel a scan at any point.
 
 TWO WAYS TO MATCH
 Identical — byte-for-byte SHA-256 comparison. Catches the same file copied, renamed, or moved.
@@ -63,6 +63,9 @@ A similarity slider sets how alike two photos have to look before they're groupe
 
 SAFE CLEANUP
 "Select all but first" keeps one photo per group and selects the rest. Nothing is permanently deleted: files go to the Trash, and library photos go to Recently Deleted, where they stay for about 30 days.
+
+SEE WHY TWO PHOTOS MATCHED
+Tap a result for its dimensions, file size, and created/modified dates down to the second — plus which shared album an iCloud photo came from. Photos whose originals live only in iCloud are recognized as that, not reported as errors.
 
 FAST ON REPEAT
 Hashes and feature prints are cached on your device, so scanning the same library again finishes quickly. While a scan runs you see which step it's on and roughly how long is left.
@@ -81,6 +84,17 @@ Deliberately short — it reads in well under a minute.
 ## What's New in This Version (4000 max)
 
 ```
+• Scan your whole Photos library, personal photos only, shared photos only, or a single album.
+• Cancel a scan at any point.
+• Tap a result to see its size, dimensions, and created/modified dates down to the second, plus which shared album an iCloud photo came from.
+• Photos whose originals live only in iCloud are now recognized as that, not reported as scan failures — and they're no longer re-checked on every scan.
+• Fixed a scan that could get stuck on a single cloud-shared photo.
+```
+
+**~450 chars.**
+
+Previous (1.1):
+```
 Version 1.1 merges the Mac and iPhone apps into one.
 
 • Dupe Remover is now on iPhone and iPad. Same scan, same matching, same results as the Mac version.
@@ -89,8 +103,6 @@ Version 1.1 merges the Mac and iPhone apps into one.
 • Per-step progress with a time estimate while a scan runs.
 • Rebuilt cache: repeat scans start where the last one left off, survive being interrupted, and use far less memory on large libraries. Caches from earlier versions are carried over automatically.
 ```
-
-**599 chars.**
 
 ---
 
