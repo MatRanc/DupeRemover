@@ -52,7 +52,14 @@ device.
 
 ## Screenshots
 
-_Screenshots go here, see the GitHub repo for previews._
+<p align="center">
+  <img src="docs/screenshot-1.png" width="49%" />
+  <img src="docs/screenshot-2.png" width="49%" />
+</p>
+<p align="center">
+  <img src="docs/screenshot-3.png" width="49%" />
+  <img src="docs/screenshot-4.png" width="49%" />
+</p>
 
 ## Credits
 
