@@ -4,6 +4,17 @@ Duplicate Photo Finder and Remover, a native app for macOS and iOS that finds du
 
 One app, one codebase, both platforms. Everything runs locally on your device. Nothing is uploaded.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshot-1.png" width="49%" />
+  <img src="docs/screenshot-2.png" width="49%" />
+</p>
+<p align="center">
+  <img src="docs/screenshot-3.png" width="49%" />
+  <img src="docs/screenshot-4.png" width="49%" />
+</p>
+
 ## Features
 
 - **Two scan sources**, scan your Photos library (entire library, personal only, shared only, or a single album) or a local folder you pick yourself. Both work on macOS and iOS.
@@ -49,17 +60,6 @@ the similarity slider, cache reuse and invalidation, selection, and deletion.
 The similar-photo tests need a real feature print, which the iOS Simulator
 cannot produce, those tests skip themselves there and run on macOS or a real
 device.
-
-## Screenshots
-
-<p align="center">
-  <img src="docs/screenshot-1.png" width="49%" />
-  <img src="docs/screenshot-2.png" width="49%" />
-</p>
-<p align="center">
-  <img src="docs/screenshot-3.png" width="49%" />
-  <img src="docs/screenshot-4.png" width="49%" />
-</p>
 
 ## Credits
 
