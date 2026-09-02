@@ -30,8 +30,8 @@ jobs:
           ln -s /Applications build/dmg/Applications
           hdiutil create -volname DupeRemover -srcfolder build/dmg -ov -format UDZO build/DupeRemover.dmg
       - uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
         with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('build-{0}', github.run_number) }}
           files: DupeRemover/build/DupeRemover.dmg
       - uses: actions/upload-artifact@v4
         with:
