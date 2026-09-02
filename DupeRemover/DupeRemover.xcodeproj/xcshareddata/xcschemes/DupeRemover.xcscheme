@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "FA570000000000000000A006"
-               BuildableName = "Dupe Remover.app"
+               BuildableName = "DupeRemover.app"
                BlueprintName = "DupeRemover"
                ReferencedContainer = "container:DupeRemover.xcodeproj">
             </BuildableReference>
@@ -58,7 +58,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "FA570000000000000000A006"
-            BuildableName = "Dupe Remover.app"
+            BuildableName = "DupeRemover.app"
             BlueprintName = "DupeRemover"
             ReferencedContainer = "container:DupeRemover.xcodeproj">
          </BuildableReference>
@@ -75,7 +75,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "FA570000000000000000A006"
-            BuildableName = "Dupe Remover.app"
+            BuildableName = "DupeRemover.app"
             BlueprintName = "DupeRemover"
             ReferencedContainer = "container:DupeRemover.xcodeproj">
          </BuildableReference>

@@ -17,7 +17,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		FA570000000000000000A001 /* Dupe Remover.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Dupe Remover.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		FA570000000000000000A001 /* DupeRemover.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DupeRemover.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FA570000000000000000A020 /* DupeRemoverTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DupeRemoverTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -72,7 +72,7 @@
 		FA570000000000000000A005 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				FA570000000000000000A001 /* Dupe Remover.app */,
+				FA570000000000000000A001 /* DupeRemover.app */,
 				FA570000000000000000A020 /* DupeRemoverTests.xctest */,
 			);
 			name = Products;
@@ -100,7 +100,7 @@
 			packageProductDependencies = (
 			);
 			productName = DupeRemover;
-			productReference = FA570000000000000000A001 /* Dupe Remover.app */;
+			productReference = FA570000000000000000A001 /* DupeRemover.app */;
 			productType = "com.apple.product-type.application";
 		};
 		FA570000000000000000A024 /* DupeRemoverTests */ = {
@@ -375,7 +375,7 @@
 				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.matranc.duperemover;
 				PRODUCT_MODULE_NAME = DupeRemover;
-				PRODUCT_NAME = "Dupe Remover";
+				PRODUCT_NAME = DupeRemover;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
@@ -435,7 +435,7 @@
 				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.matranc.duperemover;
 				PRODUCT_MODULE_NAME = DupeRemover;
-				PRODUCT_NAME = "Dupe Remover";
+				PRODUCT_NAME = DupeRemover;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
@@ -470,8 +470,8 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				"TEST_HOST[sdk=iphone*]" = "$(BUILT_PRODUCTS_DIR)/Dupe Remover.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Dupe Remover";
-				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/Dupe Remover.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Dupe Remover";
+				"TEST_HOST[sdk=iphone*]" = "$(BUILT_PRODUCTS_DIR)/DupeRemover.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/DupeRemover";
+				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/DupeRemover.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/DupeRemover";
 			};
 			name = Debug;
 		};
@@ -496,8 +496,8 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				"TEST_HOST[sdk=iphone*]" = "$(BUILT_PRODUCTS_DIR)/Dupe Remover.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Dupe Remover";
-				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/Dupe Remover.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Dupe Remover";
+				"TEST_HOST[sdk=iphone*]" = "$(BUILT_PRODUCTS_DIR)/DupeRemover.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/DupeRemover";
+				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/DupeRemover.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/DupeRemover";
 			};
 			name = Release;
 		};
