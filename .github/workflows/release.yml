@@ -1,0 +1,39 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: DupeRemover
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build (unsigned)
+        run: |
+          xcodebuild build \
+            -project DupeRemover.xcodeproj -scheme DupeRemover \
+            -configuration Release -destination 'generic/platform=macOS' \
+            CONFIGURATION_BUILD_DIR="$PWD/build/Release" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+      - name: Make DMG
+        run: |
+          mkdir -p build/dmg
+          cp -R build/Release/*.app build/dmg/
+          ln -s /Applications build/dmg/Applications
+          hdiutil create -volname DupeRemover -srcfolder build/dmg -ov -format UDZO build/DupeRemover.dmg
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: DupeRemover/build/DupeRemover.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DupeRemover-dmg
+          path: DupeRemover/build/DupeRemover.dmg
