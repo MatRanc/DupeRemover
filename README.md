@@ -1,5 +1,7 @@
 # Dupe Remover
 
+**[Download on the Mac App Store](https://apps.apple.com/app/id6770612666)**
+
 Duplicate Photo Finder and Remover, a native app for macOS and iOS that finds duplicate and visually similar photos in your Photos library or in any folder you point it at, and lets you clear out the extras.
 
 One app, one codebase, both platforms. Everything runs locally on your device. Nothing is uploaded.
@@ -13,6 +15,10 @@ One app, one codebase, both platforms. Everything runs locally on your device. N
 <p align="center">
   <img src="docs/screenshot-3.png" width="49%" />
   <img src="docs/screenshot-4.png" width="49%" />
+</p>
+<p align="center">
+  <img src="docs/screenshot-ios-1.png" width="32%" />
+  <img src="docs/screenshot-ios-2.png" width="32%" />
 </p>
 
 ## Features
